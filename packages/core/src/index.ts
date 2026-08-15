@@ -24,7 +24,7 @@ export { HookRunner, loadHooksConfig, matcherHits, toolNameCandidates } from './
 export type { HookEvent, HookSpec, HookMatcherGroup, HooksConfig, HookPayload, HookOutcome, HookRunContext } from './hooks.js';
 export { loadMcpServerConfigs, connectMcpServers } from './mcp.js';
 export type { McpRuntime, McpServerConfigs, McpStdioServerConfig } from './mcp.js';
-export { appendMessage, loadTranscript, listSessions } from './session.js';
+export { appendMessage, loadTranscript, listSessions, rewindTranscript } from './session.js';
 export type { SessionMeta, SessionListItem } from './session.js';
 export { createGlmProvider, DEFAULT_GLM_MODEL, ApiError, SseBuffer } from './providers/glm.js';
 export type { GlmProviderOptions } from './providers/glm.js';

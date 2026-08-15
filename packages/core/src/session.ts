@@ -56,6 +56,45 @@ export async function loadTranscript(file: string): Promise<{ meta?: SessionMeta
   return { meta, messages, compacted };
 }
 
+/**
+ * 回退 N 轮（对标 ZCode rewind）：一轮 = 一条 user 消息及其后的 assistant/tool 消息块。
+ * 从文件末尾往前找第 N 条 user 行，删除该行（含）之后的所有原始行；原始行原样保留不重序列化。
+ * n<=0 或无轮可退为 no-op；n 超过总轮数则清空全部消息（meta.json 不动）。
+ */
+export async function rewindTranscript(
+  file: string,
+  n: number,
+): Promise<{ removedTurns: number; removedLines: number; remainingTurns: number }> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(file, 'utf8');
+  } catch {
+    return { removedTurns: 0, removedLines: 0, remainingTurns: 0 };
+  }
+  const lines = raw.split('\n');
+  // 记录每个非空行是否 user 轮起点（行号）
+  const userLineIdx: number[] = [];
+  lines.forEach((line, i) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    try {
+      const rec = JSON.parse(trimmed) as { msg?: { role?: string } };
+      if (rec.msg?.role === 'user') userLineIdx.push(i);
+    } catch {
+      /* 损坏行不算轮起点 */
+    }
+  });
+  const total = userLineIdx.length;
+  const take = Math.min(Math.max(0, Math.floor(n)), total);
+  if (take <= 0) return { removedTurns: 0, removedLines: 0, remainingTurns: total };
+  const cutFrom = userLineIdx[total - take]!;
+  const kept = lines.filter((_, i) => i < cutFrom);
+  // 保留行去尾部空行后统一以单换行收尾
+  while (kept.length && !kept[kept.length - 1]!.trim()) kept.pop();
+  await fs.writeFile(file, kept.length ? `${kept.join('\n')}\n` : '', 'utf8');
+  return { removedTurns: take, removedLines: lines.length - kept.length, remainingTurns: total - take };
+}
+
 export interface SessionListItem {
   sessionId: string;
   dir: string;

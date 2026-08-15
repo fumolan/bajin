@@ -1,4 +1,4 @@
-import { createGlmProvider, listSessions } from '@bajin/core';
+import { createGlmProvider, listSessions, rewindTranscript } from '@bajin/core';
 import type { ModelProvider, PermissionMode } from '@bajin/shared';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -26,6 +26,7 @@ const USAGE = `bajin — 交互式编码代理
   --mode <mode>    权限模式 plan|build|edit|yolo（默认 build）
   -c, --continue   恢复最近一次会话继续
   --resume <id>    恢复指定会话（sessionId 前缀匹配）
+  --rewind <n>     回退最近 N 轮对话后进入会话（配合 --resume/-c；仅裁 transcript）
   --mock           使用内置 mock provider（无需 API key，冒烟测试用）
   -h, --help       本帮助
 
@@ -43,6 +44,7 @@ interface CliArgs {
   help: boolean;
   continueLast: boolean;
   resume?: string;
+  rewind?: number;
   prompt: string[];
 }
 
@@ -57,6 +59,14 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === '--mock') args.mock = true;
     else if (a === '-c' || a === '--continue') args.continueLast = true;
     else if (a === '--resume') args.resume = argv[++i];
+    else if (a === '--rewind') {
+      const n = Number(argv[++i]);
+      if (!Number.isInteger(n) || n < 1) {
+        console.error('--rewind 需要正整数（回退最近 N 轮对话）');
+        process.exit(1);
+      }
+      args.rewind = n;
+    }
     else if (a === '-h' || a === '--help') args.help = true;
     else args.prompt.push(a);
   }
@@ -97,7 +107,7 @@ function main(): void {
 
     // 恢复会话：--continue 取最近，--resume 前缀匹配
     let resume: { sessionId: string; transcriptPath: string } | undefined;
-    if (args.continueLast || args.resume) {
+    if (args.continueLast || args.resume || args.rewind) {
       const sessions = await listSessions(PERSIST_DIR);
       const hit = args.resume
         ? sessions.find((s) => s.sessionId.startsWith(args.resume!))
@@ -107,6 +117,15 @@ function main(): void {
         process.exit(1);
       }
       resume = { sessionId: hit.sessionId, transcriptPath: hit.transcriptPath };
+    }
+
+    // 回退 N 轮后进入会话（对标 ZCode rewind）：只裁 transcript，meta 不动
+    if (args.rewind && resume) {
+      const r = await rewindTranscript(resume.transcriptPath, args.rewind);
+      console.log(`已回退 ${r.removedTurns} 轮（删 ${r.removedLines} 行，剩 ${r.remainingTurns} 轮）：${resume.sessionId}`);
+    } else if (args.rewind && !resume) {
+      console.error('--rewind 需要有可回退的历史会话（配合 --resume <id> 或 -c）');
+      process.exit(1);
     }
 
     const common = {
