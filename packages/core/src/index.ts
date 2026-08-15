@@ -34,5 +34,7 @@ export { createMockProvider } from './providers/mock.js';
 export type { MockStep, MockProvider } from './providers/mock.js';
 export { builtinTools } from './tools/index.js';
 export { readTool, writeTool, editTool, bashTool, globTool, grepTool, todoWriteTool, askUserQuestionTool } from './tools/index.js';
+export { createWebFetchTool, createWebSearchTool, htmlToText, parseDuckResults, loadWebConfig } from './tools/index.js';
+export type { FetchLike, WebConfig } from './tools/index.js';
 export { globToRegExp, walkFiles } from './tools/search.js';
 export { TODO_STATE_KEY } from './tools/interaction.js';
