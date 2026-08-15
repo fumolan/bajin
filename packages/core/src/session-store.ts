@@ -18,13 +18,20 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { ChatMessage } from '@bajin/shared';
 import type { SessionMeta } from './session.js';
 
-/** 惰性加载 node:sqlite：vitest/vite 无法静态解析该前缀；CJS bundle 与 Electron 内置 Node 缺模块时不拖垮整个 core（调用才报错） */
+/** 惰性加载 node:sqlite：vitest/vite 无法静态解析该前缀；CJS bundle 的 import.meta.url shim 失效时回退 execPath；Electron 内置 Node 缺模块不拖垮 core（调用才报错） */
 let nodeRequire: ReturnType<typeof createRequire> | null = null;
 let dbCtor: (new (file: string) => DatabaseSync) | null = null;
 function sqliteDbCtor(): new (file: string) => DatabaseSync {
   if (!dbCtor) {
+    if (!nodeRequire) {
+      try {
+        nodeRequire = createRequire(import.meta.url);
+      } catch {
+        // esbuild CJS 输出里 import.meta.url 不可用——内置模块解析与路径无关，任意真实路径即可
+        nodeRequire = createRequire(process.execPath);
+      }
+    }
     try {
-      nodeRequire ??= createRequire(import.meta.url);
       dbCtor = nodeRequire('node:sqlite').DatabaseSync as new (file: string) => DatabaseSync;
     } catch {
       throw new Error('当前运行时不支持 node:sqlite（需 Node ≥ 22.5 / Electron 对应版本）');

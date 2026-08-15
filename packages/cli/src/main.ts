@@ -1,4 +1,4 @@
-import { createGlmProvider, listSessions, rewindTranscript } from '@bajin/core';
+import { createGlmProvider, listSessions, rewindTranscript, openSessionStore, migrateJsonlToStore } from '@bajin/core';
 import type { ModelProvider, PermissionMode } from '@bajin/shared';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -29,6 +29,10 @@ const USAGE = `bajin — 交互式编码代理
   --rewind <n>     回退最近 N 轮对话后进入会话（配合 --resume/-c；仅裁 transcript）
   --mock           使用内置 mock provider（无需 API key，冒烟测试用）
   -h, --help       本帮助
+
+子命令:
+  migrate [--db <file>]  存量 JSONL 会话迁入 SQLite（幂等；默认 ~/.bajin/sessions.db，遵循 BAJIN_HOME）
+  app-server --stdio     作为桌面端后端进程运行
 
 配置:
   ~/.bajin/config.json（用户级）与 ./bajin.json（项目级，覆盖用户级）
@@ -82,6 +86,22 @@ function main(): void {
         process.exit(1);
       }
       runAppServer();
+      return;
+    }
+    // 子命令：bajin migrate —— 存量 JSONL 会话迁入 SQLite（幂等，可重复执行）
+    if (process.argv[2] === 'migrate') {
+      const dbFlag = process.argv[3] === '--db' ? process.argv[4] : undefined;
+      const db = dbFlag ?? path.join(HOME_STATE, 'sessions.db');
+      const store = openSessionStore(db);
+      try {
+        const r = await migrateJsonlToStore(PERSIST_DIR, store);
+        console.log(`迁移完成：新迁入 ${r.migrated} 个会话 / ${r.messages} 条消息；跳过已入库 ${r.skipped} 个。库文件：${db}`);
+      } catch (err) {
+        console.error(`迁移失败: ${err instanceof Error ? err.message : err}`);
+        process.exitCode = 1;
+      } finally {
+        store.close();
+      }
       return;
     }
     const args = parseArgs(process.argv.slice(2));
