@@ -56,6 +56,8 @@ export interface AgentOptions {
   rolloutDir?: string;
   /** 开启后把会话消息落到 <dir>/<sessionId>/transcript.jsonl，支撑 --continue/--resume */
   persistDir?: string;
+  /** SQLite 双写通道（过渡期）：每条持久化消息同时入 store；JSONL 仍为读路径。异常只吞不阻断 */
+  storeSink?: (msg: ChatMessage) => void;
   /** 恢复既有会话时传入 */
   sessionId?: string;
   /** 附加到 system prompt 末尾的说明（子代理人格等） */
@@ -623,8 +625,14 @@ export class Agent implements PlanModeHost {
   // —— 持久化 ——
 
   private async persist(msg: ChatMessage): Promise<void> {
-    if (!this.transcriptPath) return;
-    await appendMessage(this.transcriptPath, msg);
+    if (this.transcriptPath) await appendMessage(this.transcriptPath, msg);
+    if (this.opts.storeSink) {
+      try {
+        this.opts.storeSink(msg);
+      } catch {
+        /* SQLite 双写失败不影响会话（JSONL 为主） */
+      }
+    }
   }
 
   /** 历史上下文用量（粗估 token） */
@@ -706,8 +714,16 @@ export class Agent implements PlanModeHost {
       this.messages.push({ role: 'user', content: `[会话已压缩] 之前的对话摘要：\n${summary}` });
       this.messages.push(...tail);
       const after = this.contextTokens();
+      const compactMark: ChatMessage = { role: 'system', content: `<<<compacted ${new Date().toISOString()} tokens ${before}->${after}>>>` };
       if (this.transcriptPath) {
-        await appendMessage(this.transcriptPath, { role: 'system', content: `<<<compacted ${new Date().toISOString()} tokens ${before}->${after}>>>` } as ChatMessage).catch(() => undefined);
+        await appendMessage(this.transcriptPath, compactMark).catch(() => undefined);
+      }
+      if (this.opts.storeSink) {
+        try {
+          this.opts.storeSink(compactMark);
+        } catch {
+          /* 双写失败不影响压缩 */
+        }
       }
       const hookCtx = await this.hookRunner.fire('SessionStart', { source: 'compact' }).catch(() => undefined);
       if (hookCtx?.additionalContext) this.hookExtraContext = hookCtx.additionalContext;

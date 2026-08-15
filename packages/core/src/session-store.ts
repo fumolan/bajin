@@ -54,7 +54,10 @@ export function openSessionStore(file: string): SessionStore {
       model TEXT NOT NULL DEFAULT '',
       cwd TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT '',
-      title TEXT
+      title TEXT,
+      "group" TEXT,
+      pinned INTEGER,
+      modified_at TEXT NOT NULL DEFAULT ''
     );
     CREATE TABLE IF NOT EXISTS message (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,17 +88,36 @@ export function openSessionStore(file: string): SessionStore {
       created_at TEXT NOT NULL DEFAULT ''
     );
   `);
+  // 旧库（切片2 建的五列表）补列：ALTER 失败说明列已存在，忽略
+  for (const col of ['"group" TEXT', 'pinned INTEGER', 'modified_at TEXT NOT NULL DEFAULT \'\'']) {
+    try {
+      db.exec(`ALTER TABLE session ADD COLUMN ${col}`);
+    } catch {
+      /* 列已存在 */
+    }
+  }
   return { db, close: () => db.close() };
 }
 
-/** 确保会话行存在（meta 缺省字段兜底） */
-export function storeUpsertSession(store: SessionStore, meta: SessionMeta): void {
+export interface StoreSessionMeta extends SessionMeta {
+  group?: string;
+  pinned?: boolean;
+  modifiedAt?: string;
+}
+
+/** 确保会话行存在（meta 缺省字段兜底；group/pinned/modifiedAt 仅在显式提供时更新，避免回写覆盖） */
+export function storeUpsertSession(store: SessionStore, meta: StoreSessionMeta): void {
   store.db
     .prepare(
-      `INSERT INTO session (id, model, cwd, created_at, title) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET model=excluded.model, cwd=excluded.cwd, title=excluded.title`,
+      `INSERT INTO session (id, model, cwd, created_at, title, "group", pinned, modified_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         model=excluded.model, cwd=excluded.cwd, title=excluded.title,
+         "group"=COALESCE(excluded."group", session."group"),
+         pinned=CASE WHEN excluded.pinned IS NULL THEN session.pinned ELSE excluded.pinned END,
+         modified_at=CASE WHEN excluded.modified_at = '' THEN session.modified_at ELSE excluded.modified_at END`,
     )
-    .run(meta.sessionId, meta.model ?? '', meta.cwd ?? '', meta.createdAt ?? '', meta.title ?? null);
+    .run(meta.sessionId, meta.model ?? '', meta.cwd ?? '', meta.createdAt ?? '', meta.title ?? null, meta.group ?? null, meta.pinned === undefined ? null : meta.pinned ? 1 : 0, meta.modifiedAt ?? '');
 }
 
 /** 写一条消息 + 结构化 part/tool_usage 拆分 */
@@ -152,11 +174,16 @@ export interface StoreSessionItem {
   model: string;
   cwd: string;
   createdAt: string;
+  group: string | null;
+  pinned: number;
+  modifiedAt: string;
 }
 
 export function storeListSessions(store: SessionStore): StoreSessionItem[] {
   return store.db
-    .prepare('SELECT id AS sessionId, title, model, cwd, created_at AS createdAt FROM session ORDER BY created_at DESC')
+    .prepare(
+      'SELECT id AS sessionId, title, model, cwd, created_at AS createdAt, "group" AS `group`, pinned, modified_at AS modifiedAt FROM session ORDER BY created_at DESC',
+    )
     .all() as unknown as StoreSessionItem[];
 }
 
@@ -191,11 +218,20 @@ export async function migrateJsonlToStore(
       skipped++;
       continue;
     }
-    let meta: SessionMeta | undefined;
+    let meta: (SessionMeta & { group?: string; pinned?: boolean }) | undefined;
     try {
-      meta = JSON.parse(await fs.readFile(path.join(persistDir, sessionId, 'meta.json'), 'utf8')) as SessionMeta;
+      meta = JSON.parse(await fs.readFile(path.join(persistDir, sessionId, 'meta.json'), 'utf8')) as SessionMeta & { group?: string; pinned?: boolean };
     } catch {
       meta = undefined;
+    }
+    // modifiedAt 以 transcript 最后一条 ts 兜底文件 mtime不可得的问题：用最后一条消息时间
+    let modifiedAt = '';
+    const lines = raw.split('\n').filter((l) => l.trim());
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const rec = JSON.parse(lines[i]!) as { ts?: string };
+        if (rec.ts) { modifiedAt = rec.ts; break; }
+      } catch { /* 继续向前找 */ }
     }
     storeUpsertSession(store, {
       sessionId,
@@ -203,6 +239,9 @@ export async function migrateJsonlToStore(
       cwd: meta?.cwd ?? '',
       createdAt: meta?.createdAt ?? new Date().toISOString(),
       title: meta?.title,
+      group: meta?.group,
+      pinned: meta?.pinned,
+      modifiedAt,
     });
     for (const line of raw.split('\n')) {
       const trimmed = line.trim();

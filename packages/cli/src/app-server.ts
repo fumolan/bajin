@@ -5,6 +5,7 @@ import { promises as fs } from 'node:fs';
 import {
   Agent, createGlmProvider, createAnthropicProvider, createMockProvider, listSessions, PermissionPolicy, discoverSkills,
   discoverCommands, findCommand, expandCommand, loadHooksConfig, discoverSubagents, readMemories, clearMemories,
+  openSessionStore, storeUpsertSession, storeAppendMessage, type SessionStore,
   mergeModelOptions, readCustomModels, writeCustomModels, resolveModelEndpoint,
   readProviders, writeProviders, nextCronRun,
   type SlashCommand, type HooksConfig, type CustomModel, type ProviderEntry, type AgentCallbacks, type MockStep,
@@ -94,6 +95,19 @@ export class AppServer {
   private providers: ProviderEntry[] = [];
   private hooks: HooksConfig = {};
   private schedulerTimer: ReturnType<typeof setInterval> | null = null;
+  /** SQLite 会话库（双写过渡）：惰性开库，失败降级为 null 只走 JSONL */
+  private store: SessionStore | null | undefined = undefined;
+
+  private sessionStore(): SessionStore | null {
+    if (this.store !== undefined) return this.store;
+    try {
+      this.store = openSessionStore(path.join(AppServer.stateHome(), 'sessions.db'));
+    } catch (err) {
+      console.error(`[bajin] SQLite 会话库不可用，仅 JSONL：${err instanceof Error ? err.message : err}`);
+      this.store = null;
+    }
+    return this.store;
+  }
 
   constructor(
     private readonly write: (line: string) => void,
@@ -574,6 +588,9 @@ export class AppServer {
 
   private createSession(cwd: string, model: string, mode: PermissionMode, reuseId?: string): SessionState {
     const providerFactory = this.buildProviderFactory();
+    const store = this.persist ? this.sessionStore() : null;
+    // storeSink 在 persist() 内触发，晚于构造——用 holder 承载构造后才有的 sessionId
+    const sidHolder: { sid: string } = { sid: '' };
     const agent = new Agent({
       provider: providerFactory(),
       providerFactory,
@@ -584,7 +601,25 @@ export class AppServer {
       ...(this.persist ? { persistDir: this.persistDir(), rolloutDir: this.rolloutDir() } : {}),
       ...(this.hooks.enabled ? { hooks: this.hooks } : {}),
       ...(reuseId ? { sessionId: reuseId } : {}),
+      ...(store
+        ? {
+            storeSink: (msg: ChatMessage) => {
+              storeAppendMessage(store, sidHolder.sid, msg);
+              store.db.prepare('UPDATE session SET modified_at = ? WHERE id = ?').run(new Date().toISOString(), sidHolder.sid);
+            },
+          }
+        : {}),
     });
+    if (store) {
+      sidHolder.sid = agent.sessionId;
+      storeUpsertSession(store, {
+        sessionId: agent.sessionId,
+        model,
+        cwd,
+        createdAt: new Date().toISOString(),
+        title: '新会话',
+      });
+    }
     const state: SessionState = { agent, model, mode, allowedTools: [...this.allowedTools], disallowedTools: [...this.disallowedTools], busy: false, title: '新会话' };
     this.bindCallbacks(state);
     this.sessions.set(agent.sessionId, state);
