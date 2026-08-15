@@ -26,6 +26,8 @@ export { loadMcpServerConfigs, connectMcpServers } from './mcp.js';
 export type { McpRuntime, McpServerConfigs, McpStdioServerConfig } from './mcp.js';
 export { appendMessage, loadTranscript, listSessions, rewindTranscript } from './session.js';
 export type { SessionMeta, SessionListItem } from './session.js';
+export { openSessionStore, storeUpsertSession, storeAppendMessage, storeLoadTranscript, storeListSessions, migrateJsonlToStore } from './session-store.js';
+export type { SessionStore, StoreSessionItem } from './session-store.js';
 export { createGlmProvider, DEFAULT_GLM_MODEL, ApiError, SseBuffer } from './providers/glm.js';
 export type { GlmProviderOptions } from './providers/glm.js';
 export { createAnthropicProvider, toAnthropicMessages, processAnthropicChunk } from './providers/anthropic.js';
