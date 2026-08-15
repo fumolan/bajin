@@ -1,0 +1,28 @@
+{
+  "name": "@bajin/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "bajin 桌面端（Electron 壳，agent 跑在 app-server 子进程）",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs && electron .",
+    "start": "electron .",
+    "dist": "node scripts/build.mjs && electron-builder",
+    "dist:dir": "node scripts/build.mjs && electron-builder --dir"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0",
+    "esbuild": "^0.21.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

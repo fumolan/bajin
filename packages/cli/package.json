@@ -1,0 +1,27 @@
+{
+  "name": "@bajin/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.js",
+  "bin": {
+    "bajin": "bin/bajin.js"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "pnpm build && vitest run",
+    "bundle": "esbuild src/main.ts --bundle --platform=node --format=cjs --target=node22 --outfile=dist/bundle/bajin.cjs --log-level=warning"
+  },
+  "dependencies": {
+    "@bajin/core": "workspace:*",
+    "@bajin/shared": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.21.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

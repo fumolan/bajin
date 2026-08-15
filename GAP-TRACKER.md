@@ -1,0 +1,118 @@
+# bajin 追平 ZCode —— 进度账本（GAP TRACKER)
+
+> 本文件是 nightly 自动化运行的唯一进度账本。每次运行：先读本文件 → 校验基线全绿 → 从 backlog 顶部取 1 个条目实现 → 测试 → 在「运行日志」追加记录。
+> 人工查看也以本文件为准。
+
+## 使命
+
+让 bajin（本仓库，净室复刻的编码代理）在功能、体验、稳定性上追平并超越 ZCode v3.7.7。
+
+## 完成标准（全部满足即达标，停止开发）
+
+1. 功能面：下方 backlog 全部条目完成或明确标记「不做+理由」
+2. 测试：`pnpm -r test` ≥ 150 项且全绿
+3. 内核：单文件 bundle（dist/bundle/bajin.cjs）< 1MB，CLI 冒烟通过
+4. 桌面：AppImage 打包通过，打包态 app-server 协议冒烟通过
+5. 文档：README 与本账本与实际功能一致
+
+## 硬性约束（每次运行必须遵守）
+
+- **净室原则**：只参考 ZCode 的行为与接口（设计文档 + 参考/ 源码快照），绝不复制其代码文本
+- **禁止 git commit/push**（用户要求亲自确认）
+- 不修改 `参考/`、`~/.zcode/`（只读）；不引入未声明的全局工具
+- **全绿底线**：任何时刻 `pnpm -r build && pnpm -r test` 必须通过；一次运行只做 1-2 个可验证增量，宁小勿破；大特性切最小可用切片
+- 开工先修坏：若基线校验失败，先修复，本轮不做新功能
+
+## 已完成（截至 2026-08-14）
+
+- Agent 内核：流式循环、8 内置工具、四档权限、并行工具分组（concurrentSafe）、Edit/Write 返回 unified diff、Plan 模式（Enter/ExitPlanMode+审批）、子代理（Explore/general-purpose）、动态 system prompt（todo 回注/AGENTS.md/skills 注入/工具教练）、abort 中断、自动/手动 compact、rollout 模型 IO 日志、会话持久化（JSONL）+ --continue/--resume、skills 发现与 Skill 工具
+- Provider：GLM（open.bigmodel.cn，openai 兼容，fetch+SSE，重试），默认 glm-5.3；mock/echo 测试 provider
+- CLI：REPL（/model /mode /compact /sessions /status /clear）、headless -p、app-server --stdio（多会话 JSON-RPC、审批/ask-user 往返、set-allowed-tools 原地生效、status、interrupt、session/new/open/close/fork）
+- 桌面：Electron 壳 + agent 子进程（ELECTRON_RUN_AS_NODE 拉起单文件 bundle）、多标签、侧边栏历史、markdown 渲染+代码复制、diff 着色、todo 实时面板、计划审批卡、审批三选（始终允许）、AskUserQuestion 原生卡、斜杠补全、token 指示、停止、分叉
+- 打包：esbuild 单文件 bundle（~605KB）、electron-builder（Linux AppImage/deb、Win nsis/portable、mac dmg/zip）、GH Actions 三平台流水线
+- 测试：60 项（core 52 + app-server e2e 8）全绿
+
+## 差距 Backlog（按优先级，从顶部取）
+
+### P0 —— 内核功能还债（ZCode 有而 bajin 缺的核心）
+
+- [x] **自定义 slash commands**（2026-08-15 夜间运行完成）：`packages/core/src/commands.ts` 发现+展开；发现顺序对标 ZCode：用户 `~/.bajin/commands` > 工作区 `.bajin/commands`（cwd 向上到 .git 根每级扫描，靠近 cwd 优先），同名先到先得；文件名即命令名（`^[a-z0-9][a-z0-9_:-]{0,63}$` 按原始大小写校验），嵌套目录冒号命名（`review/code.md`→`/review:code`）；flat frontmatter（顶层单行，缩进/未知 key 忽略）：description/argument-hint/allowed-tools/model/skills；description 缺省取正文首个非空行，全空丢弃；展开 `$ARGUMENTS`/`$1..$9`（越界空串），有参数无占位符追加「User arguments:」，`` !` `` 动态 shell 拒绝；CLI REPL 内置命令未命中即查自定义命令执行；app-server `commands/list` RPC（补全字段）+ `send` 内自动展开（桌面端未知 `/xxx` 透传服务器）；桌面斜杠补全合并自定义命令。剩余小项：frontmatter 的 allowed-tools/model/skills 已解析未生效（挂回 P1）
+- [x] **Hooks 系统**（2026-08-15 夜间运行完成，跨两次运行）：`packages/core/src/hooks.ts` HookRunner + 配置发现合并；恰好 7 事件（SessionStart/UserPromptSubmit/PreToolUse/PermissionRequest/PostToolUse/PostToolUseFailure/Stop），SessionStart 四来源 startup/resume/clear/compact；matcher 大小写敏感正则（省略全匹配、非法永不匹配），工具别名 Task↔Agent、ApplyPatch→Write/Edit 双向候选；钩子 command 型（shell，timeout 单位秒）+ process 型（argv 免 shell，timeoutMs 毫秒），超时解析链 hook.timeoutMs→hook.timeout×1000→配置 timeoutMs→60s；stdin 收事件载荷 JSON，模板与环境变量注入 BAJIN_/ZCODE_/CLAUDE_ 三前缀 PROJECT_DIR/SESSION_ID；stdout 严格 JSON（只认 decision/reason/additionalContext/continue/stopReason，多余键校验失败），退出码 0 通过/2 阻止/其他记错误不中断；Stop continue 续跑≤3（注入「继续任务」消息回环）；默认关，hooks.enabled:true 才启用；配置 = 用户 `~/.bajin/config.json` + 工作区 `.bajin/config.json`（cwd 向上到 .git 根，远→近追加，用户级在前），enabled 任一为 true 即启用；接入 Agent 全部事件点、REPL/headless/app-server 三入口；EPIPE 吞掉防偶发未处理错误
+- [ ] **WebSearch/WebFetch 工具**：可插拨 provider；先实现免 key 源（DuckDuckGo html 解析 + r.jina.ai 文本代理），配置 `web.provider`；超时/截断/UA 标识 `bajin-WebFetch/0.1`；mock 测试（fetchImpl 注入）
+- [ ] **MCP client**：配置 `mcp.servers`（~/.bajin/config.json + 项目 bajin.json + .mcp.json），stdio transport，工具命名 `mcp__<server>__<tool>`，启用/超时配置；用一个测试用 stdio server（node 脚本）做 e2e
+- [ ] **SQLite 会话库**：node:sqlite 替代 JSONL transcript（表：session/message/part/todo/tool_usage），保持 loadTranscript/listSessions API 兼容；迁移已有 JSONL；`--rewind <n>`（回退 N 轮）
+- [ ] **settings 作用域链**：System < User < Project < Session < Env < Cli 权重合并，项目级发现 `bajin.json` + `.bajin/config.json`（自 cwd 向上找 .git 根）；单测覆盖优先级矩阵
+- [ ] **后台任务**：Bash `run_in_background` + `TaskOutput`/`TaskStop` 工具（轮询输出、退出码）；app-server 事件转发
+
+### P1 —— 体验追平（桌面端 ZCode 有的面板/能力）
+
+- [ ] 桌面端 **终端面板**（node-pty + xterm.js，底部抽屉）
+- [ ] 桌面端 **文件树**（浏览 cwd、点击让 agent Read、脏标记）
+- [ ] 桌面端 **系统通知**（任务完成/被拒时 Notification API）
+- [ ] **图片 Read**（png/jpg → 尺寸/占位描述，为将来多模态留接口）
+- [ ] AskUserQuestion **multiSelect** 全链路（shared 类型→桌面卡→回传）
+- [ ] **EnterWorktree/ExitWorktree**（git worktree 隔离实验）
+- [ ] **Scheduler**：CronCreate/List/Delete/Update 工具 + automations 表 + 独立 `bajin scheduler` 子命令
+- [ ] **LSP 工具**（诊断查询，先支持 tsserver 单语言）
+- [ ] `.agents/` 目录双前缀兼容（skills/commands/agents 与 .bajin 平行发现）
+- [ ] 自定义命令 frontmatter 生效：allowed-tools 预授权、model 单命令切模型、skills 自动挂载（解析已在 commands.ts 完成，接 Agent 即可）
+- [x] **模型目录 + 自定义模型**（2026-08-14 人工完成）：内置 GLM 全系 24 个 + `models/add|remove|list` RPC + 持久化 `~/.bajin/config.json models[]`（保留其他键）+ 自定义端点独立 baseUrl/apiKey + 桌面端「模型」管理页（添加/删除/使用）+ 会话工具条下拉分组（自定义/内置/管理入口）+ 设置页（默认模型/模式 settings/set）+ 日志页（rollout 列表与尾部查看 logs/list|read）+ 左侧导航栏（会话/模型/设置/日志/帮助）——待 ZCode 截图对齐菜单条目与命名
+- [ ] **anthropic 兼容 provider**（open.bigmodel.cn/api/anthropic 端点，/login 后可用 coding-plan）
+
+### P2 —— 超越 ZCode（差异化）
+
+- [ ] 多 provider：Anthropic / OpenAI / OpenRouter（env key + provider registry）
+- [ ] 会话搜索与导出（跨会话 grep、导出 markdown）
+- [ ] 精确 token 计数（tiktoken-cl100k 近似表）与成本估算显示
+- [ ] 桌面端 e2e（playwright 驱动 AppImage）
+- [ ] 中文/英文 UI i18n
+- [ ] 性能：并行工具的输出流式回传（当前等全部完成）
+
+## 运行日志（每次运行追加， newest 在底部）
+
+| 时间 | 完成项 | 测试证据 | 下一步建议 |
+|---|---|---|---|
+| 2026-08-14 23:00 前置 | 账本初始化（人工） | 60/60 绿 | 从 P0-1 slash commands 开始 |
+| 2026-08-14 23:30 人工 | 供应商体系（providers/add·remove·list，模型挂供应商，端点解析链：模型自带>供应商>全局）+ 侧边栏重构为 ZCode 结构（新建任务/搜索/自动化/技能/分组/项目/知识图谱 + 系统区）+ 六个新页面（跨会话搜索、自动化管理+每分钟调度器、技能管理、分组、项目聚合+目录选择、知识图谱占位）+ cron 引擎（5 字段 next-run）+ list-sessions 带 group/cwd | 76/76 绿（core 63 + cli 13）；打包态 providers/models/automations RPC 实测通过 | P0-1 slash commands；自动化调度器已具备，后续补 CronCreate 工具（agent 侧）与 scheduler 独立进程 |
+| 2026-08-15 00:01 人工（截图对齐批次） | 按用户 ZCode 截图与参考 renderer i18n 串实现三块 UI：①使用统计页（usage/stats RPC：总 tokens/会话/消息/活跃天数/最常用模型占比/峰值时段/当前与最长连续天数/按天序列/模型分布，字符数÷3 估算；UsageView 含时间范围筛选 全部/7天/30天、指标卡、按天柱状图、模型占比条、GitHub 风格 12 周热力图；菜单新增「📊使用量」）②新建任务欢迎页（空会话居中：时段问候语 映射 ZCode chat.empty.greeting.*、模板卡 Git 站会摘要/CI 失败与不稳定测试/自定义、居中大输入框）③模型切换弹窗（会话栏 select 换成弹窗：按供应商分组列表+当前模型勾选+「管理模型与供应商」入口，对标 ZCode 模型下拉） | 77/77 绿（core 63 + cli 14，新增 usage/stats e2e）；打包态 bajin.cjs 实测 usage/stats(含 7d 筛选) 返回真实聚合；AppImage 重打 109MB | P0-1 slash commands（backlog 顶部不变）；后续可把使用统计接 rollout 精确 usage 替换估算 |
+| 2026-08-15 00:10 夜间自动 | **P0-1 自定义 slash commands 完成**：core/commands.ts（发现顺序 用户>工作区逐级、冒号命名、flat frontmatter、$ARGUMENTS/$1..$9 展开与 User arguments 追加、动态 shell 拒绝）+ CLI REPL 接入 + app-server commands/list RPC 与 send 内展开 + 桌面斜杠补全合并与未知命令透传；规格按 ZCode zcode-guide diagnosing-commands 的 12 条 pitfall 逐条核对（大小写校验、缩进忽略、同名先到先得、.git 根停止扫描） | 87/87 绿（core 72 + cli 15；新增 commands.test.ts 9 项 + e2e 1 项）；bundle 737KB 打包态实测 commands/list + /greet 展开执行通过；AppImage 重打并验证打包态 RPC | P0-2 hooks 系统（7 事件 + matcher + 退出码协议）；P1 有命令 frontmatter 生效小项已挂回 |
+| 2026-08-15 04:10 夜间自动 | **P0-2 Hooks 系统完成**（上轮中断于 app-server 接线，本轮收尾）：hooks.ts 全量实现 + Agent 7 事件接线（SessionStart 四来源/UserPromptSubmit 注入与阻止/PreToolUse 决策/PermissionRequest 再审批/PostToolUse 注入/PostToolUseFailure/Stop 续跑≤3）+ REPL/headless/app-server 三入口传参；修复两个 bug：spawn 参数重复传 shell 路径（126 退出码）、快速退出钩子的 stdin EPIPE 偶发未处理错误；规格按 zcode-guide diagnosing-hooks 12 条 pitfall 逐条核对 | 111/111 绿（core 95 + cli 16；新增 hooks.test.ts 15 项 + hooks-agent.test.ts 8 项集成 + e2e 1 项，core 4 连跑无 flake）；bundle 751KB 实测阻止/放行；AppImage 重打，打包态 UserPromptSubmit 注入实测通过 | P0-3 WebSearch/WebFetch 工具（免 key 源先行） |
+| 2026-08-15 08:15 人工（用户报障修复） | **导航卡死修复**：侧边栏此前只在 chat 视图渲染，点进任意子页面（模型/设置/使用量等）后左侧菜单整体消失，无法切回——改为侧边栏常驻（任何页面可切换菜单），右侧内容区在 chat 与子页间切换；newTab/openHistory/newTabIn 现在都会 setView('chat') 回到会话；CSS flex 布局本就兼容（sidebar flex:none + view-page flex:1）无需改动 | 111/111 绿（本次仅渲染层改动）；打包内 app.asar renderer 与最新构建 md5 一致；AppImage 重打 | 用户验收中；后续子页面可加返回按钮与 Esc 返回 |
+| 2026-08-15 08:25 人工（用户报障修复） | **模型页去重与精简**：改为供应商中心视图——模型只以 chips 形式展示在其供应商行内（供应商配置 models ∪ 挂靠该供应商的自定义模型，点 chip 即用）；删除「添加模型」表单与「内置模型（GLM 全系）」24 行列表（内置模型在会话页模型弹窗切换）；无供应商的旧自定义模型收进「独立端点模型（旧数据）」小节。顺带修 e2e 脆弱断言：providers 精确数量断言改「新增成员」断言 + 首尾清理（用户真实配置里有供应商后旧断言必挂） | 111/111 绿；打包内 renderer md5 与最新构建一致；AppImage 重打；用户真实 provider 配置（美团）完好 | 后端 models/add RPC 保留（无 UI 入口）；供应商行可再加「添加模型」内联输入 |
+| 2026-08-15 09:00 人工（信息架构重设计） | **按 ZCode 信息架构系统性重构 UI**（用户批评「堆砌非产品设计」后深挖参考代码确认）：①侧边栏系统区收敛为单一「设置」入口，设置页改为左二级导航+右详情（基础：常规/模型设置；数据与统计：使用统计/日志；关于：帮助）——对齐 ZCode settings.nav 三分组结构；②「分组」「项目」不再是独立页面，改为任务列表视图切换（时间线/分组/项目，含 今天/昨天/本周/本月/更早 时间桶与相对时间显示），对齐 workspaceSidebar.organize；③模型设置改 ZCode 式：供应商卡片列表 + 「添加供应商」弹窗（供应商目录预设：智谱/DeepSeek/OpenRouter/Kimi/通义 | 自定义端点 两 tab），编辑同弹窗；④自动化/技能页改「列表卡片 + 弹窗创建」，表单不再常驻；⑤删除 GroupsView/ProjectsView/SearchView 外的冗余页面 | 111/111 绿；打包内 renderer md5 与最新构建一致；AppImage 重打 | 任务项上下文菜单（置顶/重命名/归档/移动分组）与侧边栏内嵌搜索待做；搜索页可改 Ctrl+K 弹窗 |
+| 2026-08-15 08:50 人工（用户报障×3，参考代码驱动） | **模型体系三修**：①模型切换移入输入框（对标 ZCode composer：底栏 切换模式[默认模式/计划模式/接受编辑/完全访问，映射 mode.label.*] + 选择模型 + ↑发送；会话栏只留 tokens/压缩/分叉/停止）；ModelPicker 加搜索框与「管理模型」（对标 chat.toolbar.model.*）②修美团模型选不到：resolveModelEndpoint 对未注册模型按供应商 models 名单回退解析（带 apiFormat）；mergeModelOptions 把供应商名下模型并入 models/list③API 格式下拉（对标 settings.modelProvider.apiFormat）：ProviderEntry.apiFormat(openai|anthropic) 贯穿 添加弹窗(目录预设标注格式)/卡片展示/端点解析；新增 Anthropic Messages provider（x-api-key+anthropic-version、system 顶层、tool_use/tool_result 内容块、message_start/content_block_delta/message_delta SSE 解析、input_json_delta 拼参、stop_reason 映射、429/5xx 重试） | 120/120 绿（新增 anthropic.test.ts 7 项 + models 回退 2 项）；bundle 实测：添加供应商(两种格式)→models/list 并入名下模型→set-model 成功；AppImage 重打 md5 一致 | 推理强度档位（chat.toolbar.thoughtLevel）待接 GLM thinking 参数；composer 排队输入（followUpQueue）待做 |
+| 2026-08-15 09:20 人工（对话体验重构，参考代码驱动） | **对话层重写（用户批评「没有思维链，只是聊天框」）**，词汇与结构全部取自参考 i18n：①思考块（chat.reasoning.*）：流式中「✻ 思考中...」带旋转动画，结束折叠为「思考过程（持续了 N 秒/几秒）」可点展开，Item 带时间戳②工具卡（chat.toolCall.*）：每工具动词化状态（读取中/已读取、执行中/已执行、编辑中/已编辑、写入中/已写入、搜索中/已搜索、更新待办/已更新待办、技能、子智能体），六态（等待中/执行中/已执行/执行失败/已拒绝/已停止），运行中显示实时耗时（busy 时每秒 tick），点击展开详情，Edit/Write 展开渲染 diff③助手消息加复制按钮（悬停显示，chat.message.copy）④右侧状态面板（chat.statusPanel.*）：目标（首条用户消息）/计划（审批中计划）/进程（todo，已完成项可折叠「已完成 N 项」）/会话（模型·模式·tokens），替换原底部 todo 面板 | 120/120 绿；打包态事件链实测 tool-call→tool-result→text-delta→done 完整；AppImage 重打 md5 一致 | thinking 依赖真实模型的 reasoning 输出（glm.ts 已解析）；后续：状态面板补 终端/智能体 区（后台任务就绪后）、大消息 toolSlice 分页 |
+| 2026-08-15 09:35 人工（用户报障） | **修复「配了供应商 Key 仍降级 mock」**：bootstrap 原来只认全局 BIGMODEL_API_KEY/uc.bigmodel.apiKey，供应商 Key 被无视；现在 providers[] 里任一供应商配了 Key 即视为有可用凭据（不降级），且未显式配置默认模型时自动回落到第一个「有 Key 且有名下模型」的供应商模型；mock 提示文案更新并指路「设置→模型设置」。用户实际配置验证：美团(有Key, LongCat-2.0) → mock=False，默认模型自动 = LongCat-2.0 | 120/120 绿；打包内 main.cjs 含修复；AppImage 重打 | builtin 模型在无全局 Key 时发送会报清晰错误（引导用户切回供应商模型或配全局 Key），符合预期 |
+| 2026-08-15 09:50 人工 | **建立 UI 对齐计划并完成批次1**：新建 UI-PLAN.md——从参考 i18n/命令注册表逐项盘点 ZCode 全部可交互元素（A 侧边栏 16 项 / B composer 8 项 / C 对话层 12 项 / D 状态面板 4 项 / E 设置页 8 项 / F 全局 5 项），标注 bajin 状态与 6 个迭代批次。批次1 落地：Ctrl+N 新建任务、Ctrl+K 搜索、Ctrl+W 关标签（全局 keydown）、侧边栏任务过滤框（标题/会话id）、工具卡「复制结果」、助手长消息(>1500字符)展开/收起、添加供应商弹窗「获取 API Key」外链（按 baseUrl 映射 7 家控制台） | 120/120 绿；AppImage 重打 | 批次2：任务项悬浮菜单（置顶/重命名/删除/移动分组，需 session/rename·delete·pin RPC）；批次4：Ctrl+K quickPick 命令面板 |
+| 2026-08-15 10:00 人工（UI-PLAN 批次2） | **任务管理四件套**：app-server 新增 session/rename（meta.title，list 时优先于首条用户消息）、session/pin（meta.pinned，时间线模式「已置顶」桶置顶+📌 标记）、session/delete（删目录，若会话开着先关）、session/set-group 复用；渲染层 TaskListItem 悬浮菜单（⋯ 按钮）：重命名（内联输入，Electron 不支持 prompt）/置顶/移动到分组（留空取消）/删除（confirm）；新增 e2e 覆盖 rename→list 优先级、pin 双向、delete 后消失与不存在报错 | 121/121 绿（cli 17）；bundle 重打；AppImage 重打 | 批次3：归档 + 显示更多/收起；批次4：Ctrl+K quickPick + 消息重试 |
+| 2026-08-15 10:30 人工（用户指漏：新建任务需基于文件夹） | **工作区选择器**（对标 chat.empty.workspaceMenu/selectProject/home/workOutsideProject）：composer 左侧与欢迎页各一个「📁 选择项目」chip，点开面板含 搜索工作区/最近项目（projects/list 按最近排序，显示路径与任务数）/选择文件夹（原生 pickDir）/主目录（bootstrap 新增 home）/不在项目中工作；选定文件夹后基于该 cwd 新建任务（session/new cwd → meta.json cwd → projects/list 聚合验证）；Tab 增加 cwd 跟踪（newTabIn/openHistory 带出），欢迎页文案对齐「开始在 {workspace} 项目新建任务」 | 121/121 绿；bundle 实测：session/new cwd=/tmp/ws-e2e → meta.cwd 正确、发消息后 projects/list 聚合到该项目；AppImage 重打 | 任务未发首条消息前不出现在项目列表（与 ZCode 行为一致）；后续可加最近工作区跨会话记忆 |
+| 2026-08-15 11:10 人工（用户指页面不一致） | **统一 Composer**：欢迎页与会话页此前是两套输入框（欢迎页无模式/模型、工作区 chip 单独一行、Enter 直发；会话页要 Ctrl+Enter）——抽成单一 Composer 组件两处复用：textarea + 底栏（选择项目 | 模式 | 模型 | ↑），Enter 发送/Shift+Enter 换行（中文输入法 isComposing 保护），欢迎页为居中卡片态（640px 圆角卡片），移除 Ctrl/Enter 提示行 | 121/121 绿；打包内 renderer md5 一致；AppImage 重打 | 用户截图如有其他不一致点待下一轮对照修 |
+| 2026-08-15 11:40 人工（用户指漏：选择项目缺远程） | **SSH 远程工作区（对标 workspaceSidebar.sshConnection* 的最小切片）**：选择项目面板新增「SSH 远程工作区」区——已配置列表（🖥 名称 user@host:port:/路径 + 删除）、「➕ 添加 SSH 连接」表单（名称/Host/Port/用户名/远程路径）；存储在 ~/.bajin/config.json remotes[]（主进程 remotes:list/add/remove IPC）；选中远程 → 主进程 kill 本地 agent，改用 ssh [port] user@host node <路径>/bajin.cjs app-server --stdio 拉起远程 agent（stdio 协议与本地完全一致，agent 跑在远程主机、文件操作落在远程 fs，架构对标 ZCode 远程运行时）→ 界面重载初始化；连接失败弹清晰前置条件说明（远程需 node + bajin.cjs 放配置路径） | 121/121 绿；AppImage 重打 | 远程前提：scp 本地 packages/cli/dist/bundle/bajin.cjs 到远程配置目录；后续可做自动部署 bajin.cjs 到远程（对标 ZCode remoteSync）与远程工作区连通性检测 |
+| 2026-08-15 12:00 人工（用户报障：空会话两个输入框） | **修空会话双输入框**：统一 Composer 后欢迎页居中输入框与底部常驻输入框在空会话同时显示——改为互斥：空会话（无消息/不忙/无审批/无提问）只显示欢迎页的居中输入框，发出首条消息后切换为底部输入框（对标 ZCode：新建任务只有居中输入区，任务开始后只有底部输入区） | 121/121 绿；AppImage 重打 | — |
+| 2026-08-15 12:35 人工（用户要求） | 会话内不再显示「bajin」发言人标识（对标 ZCode：消息流无产品名前缀，回复直接以正文呈现，仅保留悬停的 展开/收起/复制 操作） | 121/121 绿；AppImage 重打 | — |
+
+| 2026-08-15 10:35 人工（用户要求：对标 ZCode 设计质感 + 头部空间利用率） | ①系统性视觉重设计：暖柔暗色配色（非纯黑高对比）/ 极细边框 / 统一大圆角体系 / 主按钮蓝色渐变填充 / 2px 微妙左边框任务项替代 4px 粗彩边 / 新建任务改为 ZCode 式蓝色药丸按钮 / 侧栏紧凑化（搜索框圆角化、视图切换紧凑）/ 移除 sessionbar 冗余 model·mode·tokens（已在 Composer+侧栏底部）/ 侧栏底部去重仅留 tokens+设置 / 任务项 hover 菜单改为浮层卡片（hover 才显 ⋯）/ 思考块工作时实时耗时 / 工具卡 expanded 状态类 | 121/121 绿；AppImage 重打 104MB | — |
+
+| 2026-08-15 10:40 人工（用户要求：布局对标 ZCode，颜色留给设置里浅/深色调切换） | ①侧栏头部扁平化：移除 logo/mock/折叠 独占行，新建按钮 + 折叠按钮合成一行（新建撑满，折叠居右）②顶栏合并：tabbar + sessionbar 两条→单条 topbar（标签在左，压缩/分叉/停止在右，同一条 36px 高）③任务列表紧凑化：行距 7px→5px、分组标题留白缩减、字号微调④欢迎页下移：greet margin-top 12vh→7vh、字号微降 | 121/121 绿；AppImage 重打 104MB | — |
+
+| 2026-08-15 10:57 人工（布局对标 ZCode，颜色不动） | ①空状态移除 4 张模板卡片（改为标题+描述+干净输入框，对标 ZCode 空状态）②任务项单行化（标题+时间同行 flex、div→span、📌 由 ::after 伪元素控制不占文档流）③视图切换修复（min-width:0 + overflow:hidden + 不折行，确保 时间线/分组/项目 三个按钮完整显示）④侧栏底部新增 build 标识（build 2→build 3）用于确认运行版本 | 121/121 绿；AppImage 重打 104MB | — |
+
+| 2026-08-15 11:09 人工（顶栏标签对标 ZCode） | ①去掉顶栏白条（background 改为 --bg，去 border-bottom）②标签去掉分隔线（border-right）③标签内 busy 点去掉（对标 ZCode 无点）④标题居中（tab-title flex:1 + text-align:center）⑤关闭按钮 × 放右侧、常驻显示 opacity:.5 → hover 1 | 121/121 绿；AppImage 重打 104MB | — |
+
+| 2026-08-15 11:28 人工（去掉顶栏白条） | 顶栏 background 改为 transparent（完全透明，与主区融为一体），标签/hover 无背景色，仅文字颜色变化 + 激活标签底部 1px accent 线 | 121/121 绿；AppImage 重打 104MB | — |
+
+| 2026-08-15 11:35 人工（去掉顶部白条——根因修复） | 根因：白条是 Electron 原生系统标题栏，CSS 无法移除。对标 ZCode（titleBarStyle:"hidden"+titleBarOverlay:!0）：①BrowserWindow 加 titleBarStyle:'hidden' + titleBarOverlay:true，backgroundColor 更新 #18191d ②CSS topbar 加 -webkit-app-region:drag（承担窗口拖拽），tab/按钮 no-drag，右侧 110px 预留系统按钮 overlay ③build-tag 7 | 121/121 绿；AppImage 重打 104MB | — |
+
+| 2026-08-15 11:45 人工（顶栏按钮对标 ZCode：压缩/分叉 → 终端/切换面板） | ①主进程新增集成终端 IPC：bajin:term:start/input/stop（spawn $SHELL --login，cwd=会话工作目录，stdout/stderr 流式经 term-data 事件回传，term-exit 通知）②preload 暴露 termStart/termInput/termStop③顶栏「压缩/分叉」替换为「⌗ 终端」「▤ 面板」（激活态 accent 高亮；/compact 命令保留压缩能力）④新增 TerminalPanel 组件（底部 240px：输出区 + $ 输入行，↑↓ 命令历史，自动滚底，关闭时 termStop）⑤右侧状态面板受「面板」按钮开关（showPanel，默认开） | 121/121 绿；AppImage 重打 104MB；build 8 | 非真实 TTY（vim/htop 等全屏程序不可用），后续接 node-pty |
+| 2026-08-15 12:00 人工（侧栏去掉折叠，对标 ZCode 常驻展开） | 用户反馈「◀ 左三角不要，折叠后不能展开」——根因：折叠按钮在 .sidebar-head 内，.collapsed 把整个 head 连带按钮一起隐藏，故无法展开。ZCode 侧栏本身无折叠。修复：①移除 showHistory state 与 ◀▶ 折叠按钮 ②移除 .sidebar.collapsed 全部 CSS 规则（含 hidden 列表）③侧栏头部改为单行全宽蓝色「＋ 新建任务」（padding 简化，无 transition）build 9 | 121/121 绿；AppImage 重打 104MB；build 9 | 侧栏常驻展开，后续可考虑 icon rail 窄轨（非折叠） |
+| 2026-08-15 12:12 人工（修复 build 9 误删 .icon-btn 样式） | 去掉折叠时误把 .icon-btn 与 .mock-badge CSS 一并删除，但 .icon-btn 被所有弹窗/面板的关闭 × 按钮使用（终端、创建定时任务、新建技能、添加供应商等）→ 界面残缺没法用。恢复 .icon-btn 样式（background:none/border:none/color:var(--dim)/hover 高亮），build 10 | 121/121 绿；AppImage 重打 104MB；build 10 | — |
+| 2026-08-15 12:29 人工（简洁统一：新建任务并入菜单 + 修历史会话无输入框） | ①「新建任务」不再是特殊大蓝按钮——并入 side-menu 成为普通菜单项（side-item-accent 轻微 accent 文字色），去掉 sidebar-head/.new-chat 特例样式（用户要求：简洁统一不要特例，利于维护）②修「打开历史会话后没有输入框」：chat-row/status-panel 两个 class 一直无 CSS 定义，消息流无高度约束把 composer 挤出屏幕——补 chat-row{flex:1;display:flex;min-height:0}、status-panel{280px 右栏}、sp-section/sp-title/sp-goal/sp-plan 样式 build 11 | 121/121 绿；AppImage 重打 104MB；build 11 | 后续自查：改 CSS 时 grep 所有 className 是否有样式定义 |
+| 2026-08-15 14:20 人工（新建任务页对标 ZCode + Enter 修复 + 停止按钮下移） | 深挖参考 renderer 确认 ZCode 布局后三修：①修 Enter 不发送：初始标签页 sessionId=null 时 send() 直接 return——新增 ensureSession() 首发自动创建会话②欢迎页对标 chat.empty：问候语 + rounded-2xl 单卡片 composer（工作区 chip + textarea + 模式/模型/发送 一体）+ 4 个 pill 推荐卡（站会摘要/修测试/写测试/脚手架，点击填入 prompt）③停止按钮从顶栏移到 composer 右下（busy 时替换 ↑，红色，Esc 也可停止）④对话页 composer 同样改为单卡片（去两条横线），focus 时 accent 边框 build 15 | 121/121 绿；AppImage 重打 104MB；build 15 | — |
+| 2026-08-15 14:30 人工（截图对照：只读工具紧凑单行 + 顶栏图标化） | 用户贴 ZCode/bajin 对照截图，两大差异修复：①只读工具（Read/Grep/Glob/LS/LSGrep）从大卡片改为紧凑单行条目（icon + 工具名 + 参数摘要，24px 高，成功绿/失败红/运行转圈，点击展开输出）——修改类（Edit/Write/Bash/Agent）保留卡片样式②顶栏「⌗ 终端」「▤ 面板」文字按钮改为纯图标（icon-only，title 提示保留）。产品文档 https://zcode.z.ai/en/docs/welcome 已记录为权威参考 build 16 | 121/121 绿；AppImage 重打 104MB；build 16 | 剩余对照差异：计划/todo 进度内嵌消息流、输入框下方模式提示行 |
+| 2026-08-15 16:59 人工（窗口按钮去白底 + 顶栏左侧工作区下拉） | ①titleBarOverlay 从 true 改为 {color:'#1d1f24', symbolColor:'#9aa0aa'}——最小化/最大化/关闭按钮去白色底，融入深色主题②顶栏最左新增工作区下拉选（复用 WorkspaceChip：当前项目名 + ▾，下拉切换/选择文件夹/主目录/SSH，与 composer 内一致；no-drag 区域已处理）③思考块默认折叠（active 也不强制展开，随时点击）build 17+18 | 121/121 绿；AppImage 重打 104MB；build 18 | — |
+| 2026-08-15 19:50 人工（任务列表去时间线 + 设置体系迁移第一批） | ①任务列表视图只留 分组/项目（时间线移除，置顶桶两种模式都置顶，默认分组）②设置体系对标 ZCode settings.general/agentCapabilities 第一批（全部真实生效，存 ~/.bajin/config.json settings 块，主进程 config:get/set + notify + hooks IPC）：基础设置 8 项——界面语言(存偏好)、任务完成通知(Electron Notification)、通知声音(开关)、消息流显示思考(隐藏 ThinkingBlock)、消息流显示待办(隐藏 todo 面板)、自动归档(超期任务按天数过滤列表、置顶豁免)、集成终端 Shell(auto/bash/zsh/sh，主进程按配置 spawn)、终端字体(即时应用)③新增 Agent 设置分区：hooks 总开关+钩子列表(读写 config.json hooks 块，事件中文名映射)+技能/自动化/知识图谱入口+MCP/子代理/记忆/插件「规划中」标注④Switch 开关组件 + hooks-list CSS build 19 | 121/121 绿；AppImage 重打 104MB；build 19 | 下一批：MCP 服务器 UI、hooks 编辑表单、语言 i18n 全量、通知声音播放 |
+| 2026-08-15 20:35 人工（设置迁移第二批：MCP/hooks表单/代理/数据目录/i18n/子代理） | ①Hooks 编辑表单（事件下拉 7 项中文名/matcher/命令/超时，添加+删除，直写 config.json hooks 块）②MCP 服务器管理 CRUD（stdio command+args / sse url，存 config.json mcpServers；agent 运行时连接明确标注下一批）③网络代理卡（httpProxy/noProxy/caCert——主进程 spawn agent 注入 HTTPS_PROXY/NO_PROXY/NODE_USE_ENV_PROXY=1，Node24 原生 fetch 走代理，重启生效）④数据目录迁移卡（选目录→复制 sessions/rollout→记 dataDir；cli 的 sessions/rollout/skills 全部支持 BAJIN_HOME 环境变量覆盖，重启后 agent 用新目录）⑤子代理信息卡（Explore/general-purpose 内置说明，自定义定义标注规划中）⑥i18n 基础设施（t()+EN 词典 50+ 条，语言切换即时重渲染）：覆盖侧栏菜单/视图切换/设置导航/欢迎页/composer 提示/常用按钮，其余逐步补 build 22 | 121/121 绿；AppImage 重打 104MB；build 22 | 剩余：MCP 运行时连接（spawn server + mcp__server__tool）、自定义子代理定义、i18n 全量词条、通知声音 |
+| 2026-08-15 20:40 人工（MCP 运行时接入：stdio 全链路） | core/mcp.ts 净室实现 stdio 传输：McpStdioClient（spawn 子进程 + newline JSON-RPC：initialize 握手/notifications/initialized/tools-list/tools-call，超时与进程退出兜底）+ connectMcpServers（多 server 并联，单个失败仅告警不拖垮整体，工具包装为 mcp__<server>__<tool> 进审批体系 readOnly=false/riskLevel=medium）；agent.initContext 主会话自动连接（子代理跳过防递归），sessionClose 调 disposeMcp 释放子进程；新增 mcp.test.ts 3 项（假 stdio server e2e：工具注入/参数透传/isError 映射、坏配置隔离、空配置） | 124/124 绿（core 107 + cli 17，新增 mcp 3 项）；AppImage 重打 104MB；build 23 | sse 传输、MCP OAuth、资源/提示词能力下一批 |
+| 2026-08-15 20:42 人工（自定义子代理 + 通知声音） | ①core/subagents.ts：发现 ~/.bajin/agents/*.md（用户级）与 <cwd>/.bajin/agents/*.md（项目级覆盖同名），flat frontmatter name/description/tools（可选，缺省全集）+ 正文=该子代理系统指引②Agent 工具 subagent_type 从固定枚举放开为运行时校验字符串：自定义类型按定义限制工具集（mcp__ 工具始终放行）+ 注入 description+body 作为 promptSuffix，未知类型返回可用清单；发现后重建工具描述把自定义类型列给模型③app-server subagents/list RPC + 桌面 Agent 设置动态列表（名称/描述/工具/级别 + 使用说明）④通知声音真实生效：done 时 WebAudio 合成 660→880Hz 双音（无需音频文件）；新增 subagents.test.ts 2 项（frontmatter 解析/项目级覆盖/空目录） | 126/126 绿（core 109 + cli 17）；AppImage 重打 104MB；build 24 | — |
+| 2026-08-15 20:50 人工（Memory 记忆系统 + 模式提示行） | ①core/memory.ts：两级存储（用户 <BAJIN_HOME>/memory/MEMORY.md + 项目 <cwd>/.bajin/memory/MEMORY.md，条目 `- [时间] 文本`）+ readMemories/saveMemory/clearMemories/memoryPromptBlock②Memory 工具（save/recall/list，scope 选择）：模型在会话中自主记录稳定偏好与项目事实，保存后 refreshMemory 即时注入 systemPrompt③agent 接线：initContext 读取 + systemPrompt 追加「用户长期记忆/项目记忆」块 + 主会话注册工具④app-server memory/list·clear RPC + 桌面 Agent 设置记忆卡（条目列表 + 按级清空）⑤composer 模式提示行：plan=计划模式蓝色提示（不改动文件）、yolo=完全访问黄色警示（截图对照 ZCode 遗留项）；新增 memory.test.ts 3 项 | 129/129 绿（core 112 + cli 17）；AppImage 重打 104MB；build 25 | 剩余：MCP sse/OAuth、i18n 全量、插件市场 |
+| 2026-08-15 21:05 人工（MCP sse 传输） | core/mcp.ts 抽 McpClientLike 接口，新增 McpSseClient（legacy HTTP+SSE：GET 订阅事件流收 endpoint 事件定回传地址 → 请求 POST JSON → 响应经 message 事件回流；AbortController 断流兜底、headers 鉴权透传）；connectMcpServers 统一分发 stdio/sse 并包装 mcp__<server>__<tool>；桌面 MCP 卡更新为「stdio + sse」；新增 mcp-sse.test.ts 2 项（本地假 SSE server 全链路：endpoint→握手→工具→调用；不可达地址隔离不拖垮） | 131/131 绿（core 114 + cli 17）；AppImage 重打 104MB；build 26 | MCP OAuth 与资源/提示词能力仍留待后批 |
