@@ -845,10 +845,32 @@ export class AppServer {
     if (!text) throw new Error('text 不能为空');
     if (!s.title || s.title === '新会话') s.title = text.slice(0, 40);
     // 自定义 slash 命令：/name args → 展开成完整 prompt 再跑（桌面端斜杠补全联动 commands/list）
+    // frontmatter 同步生效（对标 ZCode）：model 切会话模型、allowed-tools 预授权、skills 自动挂载
     let prompt = text;
     if (text.startsWith('/')) {
       const custom = findCommand(await discoverCommands(this.cwd), text.split(/\s+/)[0] ?? '');
-      if (custom) prompt = expandCommand(custom, text.slice(1 + custom.name.length).trim());
+      if (custom) {
+        if (custom.model && custom.model !== s.model) {
+          s.model = custom.model;
+          this.rebuild(s);
+        }
+        for (const tool of custom.allowedTools ?? []) {
+          if (!s.allowedTools.includes(tool)) s.allowedTools = [...s.allowedTools, tool];
+          s.agent.allowTool(tool);
+        }
+        let mounted = '';
+        if (custom.skills?.length) {
+          const all = await discoverSkills(this.cwd).catch(() => []);
+          for (const name of custom.skills) {
+            const hit = all.find((x) => x.name === name);
+            if (!hit) continue;
+            const body = await fs.readFile(hit.file, 'utf8').catch(() => '');
+            if (body) mounted += `[挂载技能 ${name}]\n${body.slice(0, 6000)}\n\n`;
+          }
+        }
+        const expanded = expandCommand(custom, text.slice(1 + custom.name.length).trim());
+        prompt = mounted ? `${mounted}---\n${expanded}` : expanded;
+      }
     }
     s.busy = true;
     try {
