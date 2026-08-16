@@ -5,6 +5,7 @@ import { globTool, grepTool } from './search.js';
 import { todoWriteTool, askUserQuestionTool } from './interaction.js';
 import { createWebFetchTool, createWebSearchTool, htmlToText, parseDuckResults, loadWebConfig } from './web.js';
 import { createCronCreateTool, createCronUpdateTool, createCronDeleteTool, createCronListTool } from './cron.js';
+import { createTaskOutputTool, createTaskStopTool } from './tasks.js';
 
 export const builtinTools: ToolDefinition[] = [
   readTool,
@@ -21,6 +22,8 @@ export const builtinTools: ToolDefinition[] = [
   createCronUpdateTool(),
   createCronDeleteTool(),
   createCronListTool(),
+  createTaskOutputTool(),
+  createTaskStopTool(),
 ];
 
 export { readTool, writeTool, editTool, bashTool, globTool, grepTool, todoWriteTool, askUserQuestionTool };
