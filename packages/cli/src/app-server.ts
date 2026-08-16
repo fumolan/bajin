@@ -6,7 +6,7 @@ import {
   Agent, createGlmProvider, createAnthropicProvider, createMockProvider, listSessions, PermissionPolicy, discoverSkills,
   discoverCommands, findCommand, expandCommand, loadHooksConfig, discoverSubagents, readMemories, clearMemories, seedBuiltinSkills,
   openSessionStore, storeUpsertSession, storeAppendMessage, storeUpdateSessionMeta, storeDeleteSession, storeReplaceTodos, storeListSessions,
-  rewindTranscript, discoverProjectConfigFiles, envSettingsOverlay, type SessionStore,
+  rewindTranscript, discoverProjectConfigFiles, envSettingsOverlay, storeLoadTranscript, type SessionStore,
   mergeModelOptions, readCustomModels, writeCustomModels, resolveModelEndpoint,
   readProviders, writeProviders, nextCronRun,
   type SlashCommand, type HooksConfig, type CustomModel, type ProviderEntry, type AgentCallbacks, type MockStep,
@@ -270,6 +270,7 @@ export class AppServer {
     } catch { /* 无配置 */ }
     this.baseUrl = params.baseUrl ?? this.baseUrl;
     this.persist = params.persist ?? false;
+    this.initializedOnce = true;
     this.customModels = await readCustomModels();
     this.providers = await readProviders();
     this.hooks = await loadHooksConfig(this.cwd).catch(() => ({}));
@@ -668,13 +669,19 @@ export class AppServer {
 
   /** 打开历史会话（从 transcript 恢复到新标签） */
   private async sessionOpen(params: { sessionId: string }): Promise<Record<string, unknown>> {
-    this.requireInit();
+    this.requireBoot();
     const sessions = await listSessions(this.persistDir());
     const hit = sessions.find((x) => x.sessionId.startsWith(params.sessionId));
     if (!hit) throw new Error(`未找到会话: ${params.sessionId}`);
     const s = this.createSession(this.cwd, this.model, this.mode, hit.sessionId);
     await s.agent.ready;
-    const n = await s.agent.resumeFrom(hit.transcriptPath);
+    // 历史读优先 SQLite（双写期 store 最新；JSONL 损坏时可容灾恢复），无则回退 JSONL
+    let n: number;
+    const store = this.sessionStore();
+    const fromStore = store ? await Promise.resolve(storeLoadTranscript(store, hit.sessionId)).catch(() => null) : null;
+    n = fromStore && fromStore.messages.length
+      ? await s.agent.resumeFromMessages(fromStore.messages)
+      : await s.agent.resumeFrom(hit.transcriptPath);
     s.title = hit.title;
     // 历史消息一并返回，供渲染层还原完整对话流（对标 ZCode 打开任务即见全文）
     return { ...this.describe(s), messages: s.agent.messages.filter((m) => m.role !== 'system') };
@@ -776,8 +783,15 @@ export class AppServer {
 
   // —— 会话内操作 ——
 
+  private initializedOnce = false;
+
   private requireInit(): void {
     if (!this.sessions.size) throw new Error('请先调用 initialize');
+  }
+
+  /** 磁盘型入口（session/open）：只要求曾经 initialize 过——会话可能已全部关闭 */
+  private requireBoot(): void {
+    if (!this.initializedOnce) throw new Error('请先调用 initialize');
   }
 
   private withSession(p: Record<string, unknown>, fn: (s: SessionState) => unknown): Record<string, unknown> {

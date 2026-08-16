@@ -759,6 +759,11 @@ export class Agent implements PlanModeHost {
   /** 恢复会话：把历史消息（不含 system）装回本实例 */
   async resumeFrom(transcriptPath: string): Promise<number> {
     const { messages } = await loadTranscript(transcriptPath);
+    return await this.resumeFromMessages(messages);
+  }
+
+  /** 从消息数组恢复（SQLite 读路径；与 resumeFrom 同语义） */
+  async resumeFromMessages(messages: ChatMessage[]): Promise<number> {
     const usable = messages.filter((m) => m.role !== 'system');
     this.refreshSystem(); // 先保证 messages[0] 是 system，避免覆盖历史首条
     this.messages.push(...usable);

@@ -544,3 +544,25 @@ describe('模式切换：任务运行中也可切换（对标 ZCode 随时可切
     expect(done.result?.['text']).toContain('finished');
   });
 });
+
+describe('SQLite 读路径：session/open 优先 store（JSONL 损坏容灾）', () => {
+  it('删掉 transcript.jsonl 后仍能从 store 恢复完整历史', { timeout: 30_000 }, async () => {
+    const s = startServer();
+    const sid = await init(s, { persist: true, steps: [{ text: '唯一标记 store-resume-ok' }] });
+    const sent = await s.request('send', { sessionId: sid, text: '说标记' });
+    expect(sent.result!['text']).toContain('store-resume-ok');
+    await s.request('session/close', { sessionId: sid });
+    // 破坏 JSONL：会话目录名即 sessionId，直接删 transcript
+    const stateHome = path.join(dir, 'state-home');
+    const transcript = path.join(stateHome, 'sessions', sid, 'transcript.jsonl');
+    fs.rmSync(transcript, { force: true });
+    expect(fs.existsSync(transcript)).toBe(false);
+    // 从 store 恢复打开：消息仍完整
+    const openedMsg = await s.request('session/open', { sessionId: sid });
+    if (openedMsg.error) throw new Error('open error: ' + JSON.stringify(openedMsg.error));
+    const opened = openedMsg.result as { messages?: Array<{ role: string; content: string }> };
+    const texts = (opened.messages ?? []).map((m) => m.content ?? '').join(' ');
+    expect(texts).toContain('说标记');
+    expect(texts).toContain('store-resume-ok');
+  });
+});
