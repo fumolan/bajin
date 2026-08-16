@@ -3,7 +3,39 @@
    对标 ZCode 质感：暖柔暗色 / 极细边框 / 统一大圆角 / 微对比
    ============================================================ */
 
-:root {
+/* ---- 浅色主题（对标 ZCode settings.appearance：浅色调）---- */
+[data-theme='light'] {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --panel-2: #eef0f4;
+  --panel-3: #e6e9ef;
+  --border: #dce0e7;
+  --border-strong: #c3c9d4;
+
+  --text: #1f2329;
+  --text-soft: #3d434d;
+  --dim: #7a8090;
+
+  --accent: #2f7fe0;
+  --accent-strong: #1e6fd0;
+  --accent-soft: rgba(47, 127, 224, 0.10);
+  --accent-gradient: linear-gradient(180deg, #3d8aee 0%, #2b74d8 100%);
+
+  --ok: #2e9e57;
+  --ok-soft: rgba(46, 158, 87, 0.12);
+  --warn: #b8860b;
+  --warn-soft: rgba(184, 134, 11, 0.12);
+  --err: #cc4d59;
+  --err-soft: rgba(204, 77, 89, 0.10);
+
+  --code-bg: #f0f2f5;
+
+  --shadow-soft: 0 2px 8px rgba(20, 30, 50, 0.10);
+  --shadow-card: 0 6px 20px rgba(20, 30, 50, 0.14);
+}
+
+:root,
+[data-theme='dark'] {
   /* ---- 底色（暖调深灰，非纯黑）---- */
   --bg: #18191d;
   --panel: #1d1f24;

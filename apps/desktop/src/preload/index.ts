@@ -27,6 +27,8 @@ export interface BajinApi {
   notify(title: string, body: string): Promise<boolean>;
   revealPath(p: string): Promise<boolean>;
   openExternal(url: string): Promise<boolean>;
+  browserClearCache(): Promise<boolean>;
+  browserClearData(): Promise<boolean>;
   hooksGet<T = Record<string, unknown> | null>(): Promise<T>;
   hooksSetEnabled(enabled: boolean): Promise<Record<string, unknown>>;
   hooksSave(hooks: Record<string, unknown>): Promise<Record<string, unknown>>;
@@ -61,6 +63,8 @@ const api: BajinApi = {
   notify: (title, body) => ipcRenderer.invoke('bajin:notify', title, body),
   revealPath: (p) => ipcRenderer.invoke('bajin:reveal-path', p),
   openExternal: (url) => ipcRenderer.invoke('bajin:open-external', url),
+  browserClearCache: () => ipcRenderer.invoke('bajin:browser:clear-cache'),
+  browserClearData: () => ipcRenderer.invoke('bajin:browser:clear-data'),
   hooksGet: () => ipcRenderer.invoke('bajin:hooks:get'),
   hooksSetEnabled: (enabled: boolean) => ipcRenderer.invoke('bajin:hooks:set-enabled', enabled),
   hooksSave: (hooks) => ipcRenderer.invoke('bajin:hooks:save', hooks),

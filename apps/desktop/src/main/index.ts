@@ -29,6 +29,7 @@ interface UserConfig {
     terminalFontFamily?: string;
     showArchivedTasks?: boolean;
     taskSortBy?: 'updated' | 'created';
+    theme?: 'light' | 'dark' | 'system';
     /** 网络代理（spawn agent 时注入 HTTPS_PROXY 等环境变量，Node24 NODE_USE_ENV_PROXY 生效） */
     proxy?: { httpProxy?: string; noProxy?: string; caCertPath?: string };
   };
@@ -190,7 +191,21 @@ app.whenReady().then(() => {
     const uc = loadUserConfig();
     uc.settings = { ...uc.settings, ...patch };
     writeUserConfig(uc);
+    // 主题切换：系统窗口按钮 overlay 颜色同步（对标 ZCode 标题栏随主题）
+    if (patch['theme'] === 'light') win?.setTitleBarOverlay({ color: '#ffffff', symbolColor: '#5a6070' });
+    else if (patch['theme'] === 'dark') win?.setTitleBarOverlay({ color: '#1d1f24', symbolColor: '#9aa0aa' });
     return uc.settings;
+  });
+
+  // 浏览器数据维护（对标 ZCode settings.browser.clearCache/clearAll：Electron session 真实清理）
+  ipcMain.handle('bajin:browser:clear-cache', async () => {
+    await win?.webContents.session.clearCache();
+    return true;
+  });
+  ipcMain.handle('bajin:browser:clear-data', async () => {
+    await win?.webContents.session.clearStorageData();
+    await win?.webContents.session.clearCache();
+    return true;
   });
 
   // 在系统文件管理器中定位（任务菜单「在文件管理器中打开」）

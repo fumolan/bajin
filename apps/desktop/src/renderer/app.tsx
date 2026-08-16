@@ -71,7 +71,7 @@ type View = 'chat' | 'settings' | 'search' | 'automations' | 'skills' | 'knowled
 
 /** 设置页二级分区（对标 ZCode 设置页左侧导航；Agent 组 8 项与 ZCode agentCapabilities 一一对应） */
 type SettingsSection =
-  | 'general' | 'models'
+  | 'general' | 'appearance' | 'models' | 'browser'
   | 'agent-memory' | 'agent-plugins' | 'agent-skills' | 'agent-subagents' | 'agent-automations' | 'agent-mcp' | 'agent-commands' | 'agent-hooks'
   | 'usage' | 'logs' | 'about';
 
@@ -102,6 +102,13 @@ const EN: Record<string, string> = {
   '复制会话 ID': 'Copy session ID', '前往配置': 'Open settings', '查看调用轨迹': 'View trajectory',
   '反馈问题': 'Feedback', '任务视图选项': 'Task view options', '排序': 'Sort by',
   '按更新时间': 'Updated time', '按创建时间': 'Created time', '收起全部分组': 'Collapse all groups',
+  '外观': 'Appearance', '浏览器': 'Browser', '界面主题与色调': 'Interface theme & tint',
+  '界面': 'Interface', '浅色调 / 深色调 / 跟随系统，即时生效': 'Light / Dark / System, applied instantly',
+  '跟随系统': 'System', '深色调': 'Dark', '浅色调': 'Light',
+  '内嵌网页的缓存与站点数据维护': 'Cache & site data maintenance for embedded web views',
+  '清理缓存': 'Clear cache', '清除图片/资源缓存，不影响登录状态': 'Clears image/resource cache, keeps logins',
+  '清除所有站点数据': 'Clear all site data', '包含缓存、Cookie、本地存储；需要确认': 'Cache, cookies, local storage; confirmation required',
+  '缓存已清理': 'Cache cleared', '站点数据已清除': 'Site data cleared', '确定清除全部站点数据？': 'Clear all site data?',
   '搜索技能…': 'Search skills…', '新建技能': 'New skill', '查看正文': 'View content', '已启用': 'Enabled', '已禁用': 'Disabled',
   '状态': 'Status', '作用域': 'Scope', '路径': 'Path', '本地技能': 'Local skills', '项目级': 'Project', '用户级': 'User',
   'SKILL.md 操作指南，agent 按需自动加载；禁用后模型不可见': 'SKILL.md guides auto-loaded by the agent; disabled skills are hidden from the model',
@@ -179,7 +186,9 @@ const SETTINGS_NAV: Array<{ group: string; items: Array<{ id: SettingsSection; i
     group: '基础',
     items: [
       { id: 'general', icon: '⚙', label: '常规' },
+      { id: 'appearance', icon: '🎨', label: '外观' },
       { id: 'models', icon: '🧠', label: '模型设置' },
+      { id: 'browser', icon: '🌐', label: '浏览器' },
     ],
   },
   {
@@ -250,6 +259,10 @@ declare global {
       hooksGet<T = Record<string, unknown> | null>(): Promise<T>;
       hooksSetEnabled(enabled: boolean): Promise<Record<string, unknown>>;
       hooksSave(hooks: Record<string, unknown>): Promise<Record<string, unknown>>;
+      revealPath(p: string): Promise<boolean>;
+      openExternal(url: string): Promise<boolean>;
+      browserClearCache(): Promise<boolean>;
+      browserClearData(): Promise<boolean>;
       onEvent(cb: (p: { event: string; params: unknown }) => void): () => void;
     };
   }
@@ -803,6 +816,21 @@ function App() {
     });
   }, []);
 
+  /* 主题应用：settings.theme → 根节点 data-theme；system 跟随媒体查询 */
+  useEffect(() => {
+    const apply = (): void => {
+      const pref = uiSettings.theme ?? 'dark';
+      const resolved = pref === 'system'
+        ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+        : pref;
+      document.documentElement.setAttribute('data-theme', resolved);
+    };
+    apply();
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, [uiSettings.theme]);
+
   /** 界面设置变更：写盘 + 更新内存态（立即生效，无需重启）；语言切换触发全量重渲染 */
   const patchUiSettings = useCallback((patch: Partial<UISettings>) => {
     setUiSettings((prev) => ({ ...prev, ...patch }));
@@ -1272,7 +1300,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 32</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 33</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
@@ -1915,6 +1943,8 @@ function SettingsView({ section, onSection, isMock, models, providers, refreshMo
             onUse={onUseModel}
           />
         )}
+        {section === 'appearance' && <AppearanceSection settings={uiSettings} onSettingsChange={patchUiSettings} />}
+        {section === 'browser' && <BrowserSection />}
         {section === 'agent-memory' && <AgentMemorySection />}
         {section === 'agent-plugins' && <AgentPluginsSection />}
         {section === 'agent-skills' && <SkillsView />}
@@ -1926,6 +1956,54 @@ function SettingsView({ section, onSection, isMock, models, providers, refreshMo
         {section === 'usage' && <UsageView />}
         {section === 'logs' && <LogsView />}
         {section === 'about' && <HelpView />}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- 外观分区（对标 ZCode settings.appearance：浅色/深色/跟随系统） ---------- */
+
+function AppearanceSection({ settings, onSettingsChange }: {
+  settings: UISettings;
+  onSettingsChange: (patch: Partial<UISettings>) => void;
+}): ReactNode {
+  return (
+    <div className="vp-inner">
+      <h2>{t('外观')} <span className="log-meta">{t('界面主题与色调')}</span></h2>
+      <div className="card flat">
+        <div className="settings-row">
+          <span>{t('界面')}<span className="settings-desc">{t('浅色调 / 深色调 / 跟随系统，即时生效')}</span></span>
+          <select
+            value={settings.theme ?? 'dark'}
+            onChange={(e) => onSettingsChange({ theme: e.target.value as UISettings['theme'] })}
+          >
+            <option value="system">{t('跟随系统')}</option>
+            <option value="dark">{t('深色调')}</option>
+            <option value="light">{t('浅色调')}</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- 浏览器分区（对标 ZCode settings.browser：数据维护） ---------- */
+
+function BrowserSection(): ReactNode {
+  const [msg, setMsg] = useState('');
+  return (
+    <div className="vp-inner">
+      <h2>{t('浏览器')} <span className="log-meta">{t('内嵌网页的缓存与站点数据维护')}</span></h2>
+      <div className="card flat">
+        <div className="settings-row">
+          <span>{t('清理缓存')}<span className="settings-desc">{t('清除图片/资源缓存，不影响登录状态')}</span></span>
+          <button onClick={() => { void window.bajin.browserClearCache().then(() => setMsg(t('缓存已清理'))); }}>{t('清理缓存')}</button>
+        </div>
+        <div className="settings-row">
+          <span>{t('清除所有站点数据')}<span className="settings-desc">{t('包含缓存、Cookie、本地存储；需要确认')}</span></span>
+          <button onClick={() => { if (confirm(t('确定清除全部站点数据？'))) void window.bajin.browserClearData().then(() => setMsg(t('站点数据已清除'))); }}>{t('清除所有站点数据')}</button>
+        </div>
+        {msg && <div className="card-actions"><span className="form-msg">{msg}</span></div>}
       </div>
     </div>
   );
@@ -1945,6 +2023,7 @@ interface UISettings {
   terminalFontFamily?: string;
   showArchivedTasks?: boolean;
   taskSortBy?: 'updated' | 'created';
+  theme?: 'light' | 'dark' | 'system';
   proxy?: { httpProxy?: string; noProxy?: string; caCertPath?: string };
 }
 
