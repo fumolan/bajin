@@ -24,6 +24,8 @@ export { HookRunner, loadHooksConfig, matcherHits, toolNameCandidates } from './
 export type { HookEvent, HookSpec, HookMatcherGroup, HooksConfig, HookPayload, HookOutcome, HookRunContext } from './hooks.js';
 export { loadMcpServerConfigs, connectMcpServers } from './mcp.js';
 export type { McpRuntime, McpServerConfigs, McpStdioServerConfig } from './mcp.js';
+export { mergeSettingsLayers, discoverProjectConfigFiles, loadSettingsChain, envSettingsOverlay } from './settings.js';
+export type { SettingsChain, DiscoveredConfigFile } from './settings.js';
 export { appendMessage, loadTranscript, listSessions, rewindTranscript } from './session.js';
 export type { SessionMeta, SessionListItem } from './session.js';
 export { openSessionStore, storeUpsertSession, storeAppendMessage, storeLoadTranscript, storeListSessions, migrateJsonlToStore, storeUpdateSessionMeta, storeDeleteSession, storeReplaceTodos, storeLoadTodos } from './session-store.js';

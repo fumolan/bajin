@@ -34,8 +34,10 @@ const USAGE = `bajin — 交互式编码代理
   migrate [--db <file>]  存量 JSONL 会话迁入 SQLite（幂等；默认 ~/.bajin/sessions.db，遵循 BAJIN_HOME）
   app-server --stdio     作为桌面端后端进程运行
 
-配置:
-  ~/.bajin/config.json（用户级）与 ./bajin.json（项目级，覆盖用户级）
+配置（作用域链，近的覆盖远的）:
+  System 默认 < ~/.bajin/config.json（用户级）
+  < 项目级 bajin.json / .bajin/config.json（自 cwd 向上到 .git 根，近的覆盖远的）
+  < BAJIN_MODEL/BAJIN_MODE/BAJIN_BASE_URL/BAJIN_ALLOWED_TOOLS 等环境变量 < 命令行旗标
   API key 优先级: BIGMODEL_API_KEY 环境变量 > 配置 bigmodel.apiKey
   会话与 rollout 日志: ~/.bajin/sessions/ 与 ~/.bajin/rollout/
 `;

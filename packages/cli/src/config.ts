@@ -1,8 +1,5 @@
-import { promises as fs } from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
 import type { PermissionMode } from '@bajin/shared';
-import { DEFAULT_GLM_MODEL } from '@bajin/core';
+import { DEFAULT_GLM_MODEL, loadSettingsChain, envSettingsOverlay, mergeSettingsLayers } from '@bajin/core';
 
 export interface BajinConfig {
   provider: 'glm' | 'mock';
@@ -29,34 +26,15 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** 深合并（数组与标量直接覆盖），非法键忽略 */
-function mergeDeep(base: Record<string, unknown>, override: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = { ...base };
-  for (const [k, v] of Object.entries(override)) {
-    if (isPlainObject(v) && isPlainObject(out[k])) {
-      out[k] = mergeDeep(out[k] as Record<string, unknown>, v);
-    } else if (v !== undefined) {
-      out[k] = v;
-    }
-  }
-  return out;
-}
-
 /**
- * 配置加载与合并：用户级 ~/.bajin/config.json ← 项目级 <cwd>/bajin.json
- *（项目覆盖用户，默认值兜底；敏感的 apiKey 建议走 BIGMODEL_API_KEY 环境变量）
+ * 配置加载（settings 作用域链，对标 ZCode precedence）：
+ *   System(默认) < User(~/.bajin/config.json) < Project(bajin.json / .bajin/config.json，
+ *   自 cwd 向上到 .git 根，近的覆盖远的) < Env(BAJIN_*) < Cli(旗标，main.ts 处)。
+ * 项目发现/合并/Env 层复用 @bajin/core 的 loadSettingsChain/envSettingsOverlay。
  */
 export async function loadConfig(cwd: string): Promise<BajinConfig> {
-  const sources: Array<Record<string, unknown>> = [];
-  for (const file of [path.join(os.homedir(), '.bajin', 'config.json'), path.join(cwd, 'bajin.json')]) {
-    try {
-      const raw = await fs.readFile(file, 'utf8');
-      sources.push(JSON.parse(raw) as Record<string, unknown>);
-    } catch {
-      // 配置文件不存在或损坏时静默跳过，使用默认值
-    }
-  }
-  const merged = sources.reduce((acc, s) => mergeDeep(acc, s), DEFAULT_CONFIG as unknown as Record<string, unknown>);
+  const chain = await loadSettingsChain(cwd, { system: DEFAULT_CONFIG as unknown as Record<string, unknown> });
+  const merged = mergeSettingsLayers([chain.merged, envSettingsOverlay()]);
   return sanitizeConfig(merged);
 }
 
