@@ -43,6 +43,7 @@ export { readTool, writeTool, editTool, bashTool, globTool, grepTool, todoWriteT
 export { createWebFetchTool, createWebSearchTool, htmlToText, parseDuckResults, loadWebConfig } from './tools/index.js';
 export { createCronCreateTool, createCronUpdateTool, createCronDeleteTool, createCronListTool } from './tools/cron.js';
 export { createTaskOutputTool, createTaskStopTool } from './tools/tasks.js';
+export { createEnterWorktreeTool, createExitWorktreeTool } from './tools/worktree.js';
 export { backgroundTasks, describeTask } from './background.js';
 export type { BackgroundTask } from './background.js';
 export type { FetchLike, WebConfig } from './tools/index.js';

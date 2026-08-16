@@ -18,6 +18,7 @@ import { builtinTools } from './tools/index.js';
 import { createEnterPlanModeTool, createExitPlanModeTool, type PlanModeHost } from './tools/plan.js';
 import { createSkillTool } from './tools/skill.js';
 import { createSubagentTool } from './tools/subagent.js';
+import { createEnterWorktreeTool, createExitWorktreeTool } from './tools/worktree.js';
 import { clipSkillBody, discoverSkills, type DiscoveredSkill } from './skills.js';
 import { appendMessage, loadTranscript, listSessions, type SessionMeta } from './session.js';
 import { HookRunner, type HooksConfig } from './hooks.js';
@@ -142,6 +143,7 @@ export class Agent implements PlanModeHost {
 
   constructor(opts: AgentOptions) {
     this.opts = opts;
+    this.originCwd = opts.cwd;
     this.mode = opts.mode;
     this.policy =
       opts.policy ?? new PermissionPolicy({ mode: opts.mode, allowedTools: [], disallowedTools: [] });
@@ -158,6 +160,8 @@ export class Agent implements PlanModeHost {
       toolList.push(createEnterPlanModeTool(() => this), createExitPlanModeTool(() => this));
       toolList.push(createSkillTool(() => this, clipSkillBody));
       toolList.push(createMemoryTool(() => this.opts.cwd, () => void this.refreshMemory()));
+      const wtHost = { setCwd: (d: string) => this.setCwd(d), cwd: () => this.opts.cwd, initialCwd: () => this.initialCwd };
+      toolList.push(createEnterWorktreeTool(() => wtHost), createExitWorktreeTool(() => wtHost));
       if (opts.enableSubagent !== false) toolList.push(createSubagentTool(() => this));
     }
     this.toolsMap = new Map(toolList.map((t) => [t.name, t]));
@@ -672,6 +676,18 @@ export class Agent implements PlanModeHost {
   setMode(mode: PermissionMode): void {
     this.mode = mode;
     this.policy.setMode(mode);
+  }
+
+  /** 切工作目录（worktree 工具用）：更新工具上下文 cwd 并刷新系统提示；记忆/AGENTS 随下次读取生效 */
+  setCwd(cwd: string): void {
+    this.opts.cwd = cwd;
+    this.refreshSystem();
+  }
+
+  /** 原始 cwd（ExitWorktree 回退用） */
+  private readonly originCwd: string;
+  get initialCwd(): string {
+    return this.originCwd;
   }
 
   /** 「始终允许」某工具：原地生效，进行中的循环同样感知 */
