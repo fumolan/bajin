@@ -96,6 +96,9 @@ export class AppServer {
   private providers: ProviderEntry[] = [];
   private hooks: HooksConfig = {};
   private schedulerTimer: ReturnType<typeof setInterval> | null = null;
+  /** 禁用清单（config.json skillsDisabled；Skill 工具清单与执行侧过滤） */
+  private skillsDisabled: string[] = [];
+
   /** SQLite 会话库（双写过渡）：惰性开库，失败降级为 null 只走 JSONL */
   private store: SessionStore | null | undefined = undefined;
 
@@ -179,7 +182,9 @@ export class AppServer {
         case 'search/sessions':
           return respond(await this.searchSessions(p as unknown as { query: string }));
         case 'skills/list':
-          return respond({ skills: await discoverSkills(this.cwd) });
+          return respond({ skills: (await discoverSkills(this.cwd)).map((s) => ({ ...s, enabled: !this.skillsDisabled.includes(s.name) })) });
+        case 'skills/toggle':
+          return respond(await this.skillToggle(p as unknown as { name: string; enabled: boolean }));
         case 'commands/list':
           return respond({ commands: (await discoverCommands(this.cwd)).map(this.commandSummary) });
         case 'subagents/list':
@@ -257,8 +262,12 @@ export class AppServer {
     this.allowedTools = params.allowedTools ?? [];
     this.disallowedTools = params.disallowedTools ?? [];
     this.apiKey = params.apiKey ?? this.apiKey;
-    // 首启种入内置默认技能（缺失才写，用户编辑过不覆盖；幂等）
+    // 首启种入内置默认技能（缺失才写，用户编辑过不覆盖；幂等）+ 载入禁用清单
     await seedBuiltinSkills().catch(() => undefined);
+    try {
+      const cfg = JSON.parse(await fs.readFile(path.join(AppServer.stateHome(), 'config.json'), 'utf8')) as { skillsDisabled?: string[] };
+      this.skillsDisabled = Array.isArray(cfg.skillsDisabled) ? cfg.skillsDisabled : [];
+    } catch { /* 无配置 */ }
     this.baseUrl = params.baseUrl ?? this.baseUrl;
     this.persist = params.persist ?? false;
     this.customModels = await readCustomModels();
@@ -407,6 +416,23 @@ export class AppServer {
   }
 
   // —— 技能管理 ——
+
+  /** 技能启用/禁用：写 ~/.bajin/config.json 的 skillsDisabled（会话重启后模型侧同步生效） */
+  private async skillToggle(p: { name: string; enabled: boolean }): Promise<Record<string, unknown>> {
+    const file = path.join(AppServer.stateHome(), 'config.json');
+    let cfg: Record<string, unknown> = {};
+    try {
+      cfg = JSON.parse(await fs.readFile(file, 'utf8')) as Record<string, unknown>;
+    } catch { /* 首次创建 */ }
+    const cur = new Set(Array.isArray(cfg['skillsDisabled']) ? (cfg['skillsDisabled'] as string[]) : []);
+    if (p.enabled) cur.delete(p.name);
+    else cur.add(p.name);
+    cfg['skillsDisabled'] = [...cur];
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8');
+    this.skillsDisabled = [...cur];
+    return { name: p.name, enabled: p.enabled };
+  }
 
   private async skillCreate(p: { name: string; description?: string }): Promise<Record<string, unknown>> {
     const name = (p?.name ?? '').trim();
@@ -677,6 +703,7 @@ export class AppServer {
       policy: new PermissionPolicy({ mode, allowedTools: this.allowedTools, disallowedTools: this.disallowedTools }),
       ...(this.persist ? { persistDir: this.persistDir(), rolloutDir: this.rolloutDir() } : {}),
       ...(this.hooks.enabled ? { hooks: this.hooks } : {}),
+      ...(this.skillsDisabled.length ? { disabledSkills: [...this.skillsDisabled] } : {}),
       ...(reuseId ? { sessionId: reuseId } : {}),
       ...(store
         ? {

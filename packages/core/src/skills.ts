@@ -187,6 +187,107 @@ python-pptx（pip install python-pptx）。
 改动 config.json 后重启会话/应用；BAJIN_HOME 环境变量会整体迁移状态目录。
 `,
   },
+  {
+    name: 'diagnosing-commands',
+    description: '诊断自定义 slash 命令配置问题：命令缺失、被同名覆盖、frontmatter 解析失败、未被发现的排查',
+    body: `# 自定义命令诊断
+
+## 排查顺序
+1. 文件位置：用户级 ~/.bajin/commands/*.md；项目级 <cwd>/.bajin/commands/*.md（自 cwd 向上到 .git 根每级都扫，近的优先）。
+2. 文件名即命令名，必须匹配 ^[a-z0-9][a-z0-9_:-]{0,63}$：大写、点、空格会被静默丢弃。
+3. 嵌套目录是冒号命名：review/code.md → /review:code。
+4. frontmatter 必须顶层单行 key: value（name/description/argument-hint/allowed-tools/model/skills）；缩进的嵌套块不解析。
+5. description 缺省取正文首个非空行；正文与 description 全空则整条丢弃。
+6. 同名冲突先到先得：项目级覆盖用户级——用 /命令 试执行判断是不是被覆盖。
+7. 参数展开：$ARGUMENTS/$1..$9 越界为空串；命令里带参数无占位符时会追加「User arguments:」。
+
+## 快速验证
+在目标目录放最小命令（frontmatter 只写 description），输入 / 看补全是否出现。
+`,
+  },
+  {
+    name: 'diagnosing-hooks',
+    description: '诊断钩子(Hooks)配置问题：不触发、matcher 不匹配、超时、退出码与 JSON 输出协议校验',
+    body: `# 钩子诊断
+
+## 不触发
+1. 总开关：~/.bajin/config.json 或项目 .bajin/config.json 的 hooks.enabled 必须为 true（默认关）。任一层为 true 即启用。
+2. 事件名必须精确是七个之一：SessionStart/UserPromptSubmit/PreToolUse/PermissionRequest/PostToolUse/PostToolUseFailure/Stop。
+3. 结构：hooks.events.<事件> = [{ matcher?, hooks: [{ type:'command', command, timeout? }] }]。
+
+## 触发了但行为不对
+1. matcher 是大小写敏感正则；省略=全部匹配；写错=永不匹配。工具别名：Task↔Agent、ApplyPatch→Write/Edit。
+2. 超时链：hook.timeoutMs > hook.timeout×1000 > 配置 timeoutMs > 60s。
+3. 退出码协议：0=通过，2=阻止(deny)，其他非零=记录错误不中断。
+4. stdout 想给决策必须是严格 JSON（只认 decision/reason/additionalContext/continue/stopReason）；多余键导致校验失败被忽略。
+5. 环境变量注入前缀 BAJIN_/ZCODE_/CLAUDE_：PROJECT_DIR/SESSION_ID 等。
+
+## 手测
+把 echo '{"decision":"approve"}' 直接作为 command 跑一遍验证协议。
+`,
+  },
+  {
+    name: 'diagnosing-mcp',
+    description: '诊断 MCP 服务器问题：连不上、工具不出现、stdio/sse 配置校验、超时排查',
+    body: `# MCP 诊断
+
+## 工具不出现
+1. 配置在 ~/.bajin/config.json 的 mcpServers.<name>：type 必须 stdio 或 sse。
+2. stdio 需要 command 可执行（which 验证）、args 数组；sse 需要 url 可达（curl -I 验证）。
+3. 只在会话启动时连接：改配置后重开会话。
+4. 工具命名 mcp__<server>__<tool>；server 启动慢会超时（初始化 10s），查 server 日志。
+5. 单个 server 失败不影响其他——看启动告警日志确认哪个挂了。
+
+## 连上但调用失败
+1. 调用超时上限 120s；长任务让 server 端异步。
+2. 参数 schema 由 server 定义，客户端透传——参数错误看 server 返回的 isError 文本。
+3. sse 传输：事件流 endpoint 由 server 首个 endpoint 事件下发，反代需关闭缓冲。
+`,
+  },
+  {
+    name: 'diagnosing-skills',
+    description: '诊断技能(Skills)问题：不被发现、不触发、目录结构/frontmatter 校验、优先级冲突',
+    body: `# 技能诊断
+
+## 不被发现
+1. 结构必须是 <skills根>/<name>/SKILL.md（少一层目录、文件名小写不对都算没有）。
+2. roots：用户级 ~/.bajin/skills、项目级 <cwd>/.bajin/skills。
+3. frontmatter 必须同时有 name 与 description（顶层单行）；缺任一整条跳过。
+4. name 与目录名不必一致，以 frontmatter 为准；同名先到先得（项目级 > 用户级）。
+
+## 被发现但不触发
+1. 触发依据是 description 的场景描述——写得含糊模型就不选；把触发关键词写进 description。
+2. 正文在模型决定使用时注入：太长会被截断，操作步骤放正文、参考资料放 references/。
+3. 被禁用的技能不出现在清单：查 ~/.bajin/config.json 的 skillsDisabled。
+
+## 验证
+让 agent「列出可用技能」或看设置→技能页的启用状态。
+`,
+  },
+  {
+    name: 'configuration-guide',
+    description: 'bajin 配置总览：各资源（命令/钩子/MCP/技能/子代理/记忆/自动化）在用户级与项目级的路径、格式与优先级',
+    body: `# 配置总览
+
+## 两级作用域
+- 用户级：~/.bajin/（全局生效）。
+- 项目级：<项目根>/.bajin/（优先级更高，同名覆盖用户级）。BAJIN_HOME 环境变量可整体迁移状态目录。
+
+## 各资源速查
+- 配置主文件：config.json（model/mode/hooks/mcpServers/skillsDisabled/settings 界面设置）。
+- 自定义命令：commands/*.md（文件名=命令名，嵌套目录冒号命名）。
+- 钩子：config.json 的 hooks 块（enabled 默认 false）。
+- MCP：config.json 的 mcpServers（stdio/sse）。
+- 技能：skills/<name>/SKILL.md（frontmatter: name+description）。
+- 子代理：agents/<name>.md（frontmatter: name/description/tools）。
+- 记忆：memory/MEMORY.md（用户级）与项目 .bajin/memory/（项目级），条目 - [时间] 文本。
+- 自动化：automations.json（cron 或一次性 delayMinutes）。
+
+## 通用规则
+- 全部支持 JSON/Markdown 手编；改后重启会话生效（自动化即时）。
+- 项目级发现自 cwd 向上到 .git 根，近的覆盖远的。
+`,
+  },
 ];
 
 /** 种入内置技能：仅当目标 SKILL.md 不存在时写入（用户编辑过永不覆盖）。返回本次写入数。 */

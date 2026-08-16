@@ -11,7 +11,11 @@ describe('内置默认技能', () => {
   it('种入 5 个技能且可被发现（frontmatter 解析出 name/description）', async () => {
     const n = await seedBuiltinSkills(home);
     expect(n).toBe(BUILTIN_SKILLS.length);
-    expect(BUILTIN_SKILLS.map((s) => s.name)).toEqual(['skill-creator', 'docx', 'pptx', 'pdf', 'self-check']);
+    expect(BUILTIN_SKILLS).toHaveLength(10);
+    expect(BUILTIN_SKILLS.map((s) => s.name)).toEqual([
+      'skill-creator', 'docx', 'pptx', 'pdf', 'self-check',
+      'diagnosing-commands', 'diagnosing-hooks', 'diagnosing-mcp', 'diagnosing-skills', 'configuration-guide',
+    ]);
     const found = await discoverSkills('/nonexistent-cwd', home);
     expect(found.map((s) => s.name).sort()).toEqual([...BUILTIN_SKILLS.map((s) => s.name)].sort());
     expect(found.every((s) => s.description.length > 5)).toBe(true);

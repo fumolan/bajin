@@ -102,6 +102,11 @@ const EN: Record<string, string> = {
   '复制会话 ID': 'Copy session ID', '前往配置': 'Open settings', '查看调用轨迹': 'View trajectory',
   '反馈问题': 'Feedback', '任务视图选项': 'Task view options', '排序': 'Sort by',
   '按更新时间': 'Updated time', '按创建时间': 'Created time', '收起全部分组': 'Collapse all groups',
+  '搜索技能…': 'Search skills…', '新建技能': 'New skill', '查看正文': 'View content', '已启用': 'Enabled', '已禁用': 'Disabled',
+  '状态': 'Status', '作用域': 'Scope', '路径': 'Path', '本地技能': 'Local skills', '项目级': 'Project', '用户级': 'User',
+  'SKILL.md 操作指南，agent 按需自动加载；禁用后模型不可见': 'SKILL.md guides auto-loaded by the agent; disabled skills are hidden from the model',
+  '暂无技能（在 .bajin/skills 或 ~/.bajin/skills 放 SKILL.md）': 'No skills yet (place SKILL.md under .bajin/skills or ~/.bajin/skills)',
+  '内置技能：删除后重启可恢复': 'Built-in skill: restored on restart if deleted',
   '展开全部分组': 'Expand all groups', '显示归档任务': 'Show archived tasks',
   '搜索任务...': 'Search tasks...', '暂无任务（发送消息后生成）': 'No tasks yet', '刷新任务列表': 'Refresh',
   '设置': 'Settings', '终端': 'Terminal', '面板': 'Panel',
@@ -458,6 +463,9 @@ function WorkspaceChip({ cwd, onPick }: { cwd?: string; onPick: (dir: string | n
     </div>
   );
 }
+
+/** 内置默认技能名（种子清单，与 core BUILTIN_SKILLS 保持一致；仅用于 UI 标注） */
+const BUILTIN_SKILL_NAMES = new Set(['skill-creator', 'docx', 'pptx', 'pdf', 'self-check', 'diagnosing-commands', 'diagnosing-hooks', 'diagnosing-mcp', 'diagnosing-skills', 'configuration-guide']);
 
 let bootHome: string | null = null;
 
@@ -1264,7 +1272,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 31</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 32</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
@@ -3163,47 +3171,96 @@ interface SkillInfo {
 }
 
 function SkillsView(): ReactNode {
-  const [skills, setSkills] = useState<SkillInfo[]>([]);
-  const [showCreate, setShowCreate] = useState(false);
+  const [skills, setSkills] = useState<Array<SkillInfo & { enabled?: boolean; file?: string }>>([]);
+  const [query, setQuery] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [content, setContent] = useState<{ name: string; content: string } | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const refresh = useCallback(() => {
-    void window.bajin.rpc<{ skills: SkillInfo[] }>('skills/list').then((r) => setSkills(r.skills ?? [])).catch(() => undefined);
+    void window.bajin.rpc<{ skills: Array<SkillInfo & { enabled?: boolean; file?: string }> }>('skills/list')
+      .then((r) => setSkills(r.skills ?? []))
+      .catch(() => undefined);
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
+
+  const q = query.trim().toLowerCase();
+  const filtered = q ? skills.filter((x) => x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)) : skills;
+  const groups: Array<{ label: string; items: typeof filtered }> = [
+    { label: LANG === 'en-US' ? 'Local skills' : '本地技能', items: filtered },
+  ];
+
+  async function toggle(name: string, enabled: boolean): Promise<void> {
+    await window.bajin.rpc('skills/toggle', { name, enabled }).catch(() => undefined);
+    refresh();
+  }
 
   return (
     <div className="vp-inner">
       <div className="section-head">
         <div>
-          <h2 style={{ margin: 0 }}>技能</h2>
-          <div className="log-meta">SKILL.md 指南，agent 按需自动加载。</div>
+          <h2 style={{ margin: 0 }}>{t('技能')} <span className="log-meta">{skills.length}</span></h2>
+          <div className="log-meta">{t('SKILL.md 操作指南，agent 按需自动加载；禁用后模型不可见')}</div>
         </div>
-        <button className="primary" onClick={() => setShowCreate(true)}>＋ 新建技能</button>
+        <button className="primary" onClick={() => setShowCreate(true)}>＋ {t('新建技能')}</button>
       </div>
 
-      {skills.length === 0 ? (
-        <div className="history-empty">暂无技能（在 .bajin/skills 或 ~/.bajin/skills 放 SKILL.md）</div>
+      <div className="mp-search skills-search">
+        <input autoFocus value={query} placeholder={t('搜索技能…')} onChange={(e) => setQuery(e.target.value)} />
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="history-empty">{t('暂无技能（在 .bajin/skills 或 ~/.bajin/skills 放 SKILL.md）')}</div>
       ) : (
-        <div className="provider-cards">
-          {skills.map((s) => (
-            <div key={s.name} className="provider-card">
-              <div className="provider-card-main">
-                <div className="provider-name">{s.name} <span className="log-meta">{s.source === 'project' ? '项目级' : '用户级'}</span></div>
-                <div className="model-base">{s.description}</div>
-              </div>
-              <div className="provider-card-actions">
-                <button onClick={() => { void window.bajin.rpc<{ name: string; content: string }>('skills/read', { name: s.name }).then((r) => setContent(r)); }}>查看</button>
-              </div>
+        groups.map((g) => (
+          <div key={g.label} className="skill-group">
+            <div className="settings-nav-group-title">{g.label} · {g.items.length}</div>
+            <div className="provider-cards">
+              {g.items.map((sk) => (
+                <div key={sk.name} className={`provider-card skill-card ${expanded === sk.name ? 'expanded' : ''}`}>
+                  <div className="provider-card-main" onClick={() => setExpanded((v) => (v === sk.name ? null : sk.name))}>
+                    <div className="provider-name">
+                      🛠 {sk.name}
+                      <span className={`skill-src ${sk.source}`}>{sk.source === 'project' ? t('项目级') : t('用户级')}</span>
+                    </div>
+                    <div className="model-base">{sk.description}</div>
+                  </div>
+                  <div className="provider-card-actions">
+                    <Switch checked={sk.enabled !== false} onChange={(v) => void toggle(sk.name, v)} />
+                  </div>
+                  {expanded === sk.name && (
+                    <div className="skill-detail">
+                      <div className="settings-row">
+                        <span>{t('状态')}</span>
+                        <span className="log-meta">{sk.enabled !== false ? t('已启用') : t('已禁用')}</span>
+                      </div>
+                      <div className="settings-row">
+                        <span>{t('作用域')}</span>
+                        <span className="log-meta">{sk.source === 'project' ? t('项目级') : t('用户级')}</span>
+                      </div>
+                      <div className="settings-row">
+                        <span>{t('路径')}</span>
+                        <code className="skill-path">{sk.file ?? ''}</code>
+                      </div>
+                      <div className="card-actions">
+                        <button onClick={() => { void window.bajin.rpc<{ name: string; content: string }>('skills/read', { name: sk.name }).then(setContent); }}>{t('查看正文')}</button>
+                        <button onClick={() => { void window.bajin.revealPath(sk.file ?? ''); }}>{t('在文件管理器中打开')}</button>
+                        {BUILTIN_SKILL_NAMES.has(sk.name) && <span className="log-meta">{t('内置技能：删除后重启可恢复')}</span>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        ))
       )}
 
       {content && (
         <>
           <h3>{content.name} · SKILL.md</h3>
           <pre className="log-tail">{content.content}</pre>
+          <div className="card-actions"><button onClick={() => setContent(null)}>{t('关闭')}</button></div>
         </>
       )}
 

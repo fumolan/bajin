@@ -58,6 +58,8 @@ export interface AgentOptions {
   persistDir?: string;
   /** SQLite 双写通道（过渡期）：每条持久化消息同时入 store；JSONL 仍为读路径。异常只吞不阻断 */
   storeSink?: (msg: ChatMessage) => void;
+  /** 禁用的技能名（config.json skillsDisabled）：不出现在系统提示清单，Skill 执行直接拒绝 */
+  disabledSkills?: string[];
   /** 恢复既有会话时传入 */
   sessionId?: string;
   /** 附加到 system prompt 末尾的说明（子代理人格等） */
@@ -265,7 +267,8 @@ export class Agent implements PlanModeHost {
   }
 
   skillSummaries(): SkillSummary[] {
-    return this.skills.map(({ name, description }) => ({ name, description }));
+    const off = new Set(this.opts.disabledSkills ?? []);
+    return this.skills.filter((s) => !off.has(s.name)).map(({ name, description }) => ({ name, description }));
   }
 
   /** @internal 供子代理工具转发事件 */
@@ -281,6 +284,10 @@ export class Agent implements PlanModeHost {
   getSkill(name: string): { file: string } | undefined {
     const s = this.skills.find((x) => x.name === name);
     return s ? { file: s.file } : undefined;
+  }
+
+  disabledSkills(): string[] {
+    return this.opts.disabledSkills ?? [];
   }
 
   enterPlan(): void {

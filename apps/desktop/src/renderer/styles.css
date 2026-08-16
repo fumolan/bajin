@@ -1076,3 +1076,23 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
 
 /* ---- 动画 ---- */
 @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+/* 技能页（对标 ZCode settings.skills：搜索 + 分组卡片 + 开关 + 详情面板） */
+.skills-search { padding: 0 0 10px; }
+.skill-group { margin-bottom: 18px; }
+.skill-card { cursor: pointer; }
+.skill-card .provider-card-main { flex: 1; min-width: 0; }
+.skill-card.expanded { border-color: var(--accent); }
+.skill-src {
+  font-size: 10.5px; color: var(--dim); margin-left: 8px; line-height: 1;
+  border: 1px solid var(--border); border-radius: var(--r-pill); padding: 2px 7px; vertical-align: 1px;
+}
+.skill-src.project { color: var(--accent); border-color: var(--accent-soft); }
+.skill-detail {
+  border-top: 1px solid var(--border); padding: 6px 4px 2px; width: 100%; cursor: default;
+}
+.skill-detail .settings-row { font-size: 12.5px; }
+.skill-path {
+  font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; display: inline-block;
+}
