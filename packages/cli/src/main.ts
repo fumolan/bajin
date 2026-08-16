@@ -1,4 +1,4 @@
-import { createGlmProvider, listSessions, rewindTranscript, openSessionStore, migrateJsonlToStore } from '@bajin/core';
+import { createGlmProvider, createAnthropicProvider, listSessions, rewindTranscript, openSessionStore, migrateJsonlToStore, readCustomModels, readProviders, resolveModelEndpoint } from '@bajin/core';
 import type { ModelProvider, PermissionMode } from '@bajin/shared';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -120,11 +120,19 @@ function main(): void {
       providerFactory = () => createEchoMock();
     } else {
       const apiKey = process.env['BIGMODEL_API_KEY'] ?? config.bigmodel.apiKey;
-      if (!apiKey) {
-        console.error('缺少 BigModel API key。请设置环境变量 BIGMODEL_API_KEY，或在 ~/.bajin/config.json 写入 {"bigmodel":{"apiKey":"..."}}；冒烟测试可用 --mock。');
+      // 与 app-server 同一条端点解析链：模型自带 > 供应商（openai/anthropic 格式）> 全局 key
+      const customModels = await readCustomModels().catch(() => []);
+      const providers = await readProviders().catch(() => []);
+      const ep = resolveModelEndpoint(model, customModels, providers);
+      const chainKey = ep.apiKey ?? apiKey;
+      if (!chainKey) {
+        console.error('缺少 API key。请设置环境变量 BIGMODEL_API_KEY，或为模型/供应商配置 key；冒烟测试可用 --mock。');
         process.exit(1);
       }
-      providerFactory = () => createGlmProvider({ apiKey, baseUrl: config.bigmodel.baseUrl, model });
+      providerFactory =
+        ep.apiFormat === 'anthropic'
+          ? () => createAnthropicProvider({ apiKey: chainKey, baseUrl: ep.baseUrl ?? config.bigmodel.baseUrl, model })
+          : () => createGlmProvider({ apiKey: chainKey, baseUrl: ep.baseUrl ?? config.bigmodel.baseUrl, model });
     }
 
     // 恢复会话：--continue 取最近，--resume 前缀匹配

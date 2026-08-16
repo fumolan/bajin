@@ -117,7 +117,7 @@ describe('createAnthropicProvider.chat（端到端流式）', () => {
     });
 
     // 请求侧：Anthropic 协议（x-api-key + /messages + system 顶层 + input_schema）
-    expect(captured.url).toBe('https://open.bigmodel.cn/api/anthropic/messages');
+    expect(captured.url).toBe('https://open.bigmodel.cn/api/anthropic/v1/messages');
     expect(captured.headers.get('x-api-key')).toBe('sk-ant-test');
     expect(captured.headers.get('anthropic-version')).toBe('2023-06-01');
     const body = JSON.parse(await captured.clone().text()) as Record<string, unknown>;

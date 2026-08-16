@@ -156,7 +156,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function createAnthropicProvider(opts: AnthropicProviderOptions = {}): ModelProvider {
   const apiKey = opts.apiKey ?? process.env['ANTHROPIC_API_KEY'] ?? '';
-  const baseUrl = (opts.baseUrl ?? process.env['ANTHROPIC_BASE_URL'] ?? 'https://api.anthropic.com').replace(/\/$/, '');
+  const baseUrlRaw = (opts.baseUrl ?? process.env['ANTHROPIC_BASE_URL'] ?? 'https://api.anthropic.com').replace(/\/$/, '');
+  // anthropic SDK 惯例：baseUrl 不带版本段时补 /v1（如 https://api.anthropic.com → /v1/messages）
+  const baseUrl = /\/v\d+$/.test(baseUrlRaw) ? baseUrlRaw : `${baseUrlRaw}/v1`;
   const model = opts.model ?? 'claude-sonnet-4-5';
   const doFetch = opts.fetchImpl ?? fetch;
   const maxRetries = opts.maxRetries ?? 3;

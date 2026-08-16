@@ -91,8 +91,12 @@ export async function loadSettingsChain(
   cwd: string,
   opts: { system?: Record<string, unknown>; home?: string } = {},
 ): Promise<SettingsChain> {
-  const home = opts.home ?? os.homedir();
-  const userFile = path.join(home, '.bajin', 'config.json');
+  // 显式 home=homedir（拼 .bajin）；否则 BAJIN_HOME（状态根）优先于真实家目录
+  const userFile = opts.home
+    ? path.join(opts.home, '.bajin', 'config.json')
+    : process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/')
+      ? path.join(process.env.BAJIN_HOME, 'config.json')
+      : path.join(os.homedir(), '.bajin', 'config.json');
   const layers: Array<Record<string, unknown>> = [];
   if (opts.system) layers.push(opts.system);
   const user = await readJson(userFile);
