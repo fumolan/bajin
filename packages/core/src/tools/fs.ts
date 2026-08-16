@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseImageSize, formatImageDescription, IMAGE_EXTS } from './image.js';
 import type { ToolDefinition } from '@bajin/shared';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
@@ -37,6 +38,11 @@ export const readTool: ToolDefinition<typeof ReadInput> = {
     const file = resolveWithin(ctx.cwd, input.file_path);
     const stat = await fs.stat(file).catch(() => null);
     if (!stat?.isFile()) return { ok: false, output: `文件不存在或不是普通文件: ${file}` };
+    // 图片：解析头部返回尺寸/占位描述（文本模型友好，多模态接口预留）
+    if (IMAGE_EXTS.has(path.extname(file).toLowerCase())) {
+      const head = await fs.readFile(file).then((b) => b.subarray(0, 64 * 1024)).catch(() => null);
+      return { ok: true, output: formatImageDescription(file, head ? parseImageSize(head) : null, stat.size) };
+    }
     if (stat.size > MAX_READ_BYTES) {
       return { ok: false, output: `文件过大（${stat.size} 字节，上限 ${MAX_READ_BYTES}），请用 offset/limit 或 Grep 定位后分段读取` };
     }

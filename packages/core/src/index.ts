@@ -48,4 +48,5 @@ export { backgroundTasks, describeTask } from './background.js';
 export type { BackgroundTask } from './background.js';
 export type { FetchLike, WebConfig } from './tools/index.js';
 export { globToRegExp, walkFiles } from './tools/search.js';
+export { parseImageSize, formatImageDescription, IMAGE_EXTS } from './tools/image.js';
 export { TODO_STATE_KEY } from './tools/interaction.js';
