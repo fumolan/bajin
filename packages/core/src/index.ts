@@ -12,6 +12,8 @@ export {
 export type { CustomModel, ModelOption, ProviderEntry, ApiFormat } from './models.js';
 export { parseCron, nextCronRun } from './cron.js';
 export type { CronFields } from './cron.js';
+export { automationsPath, loadAutomations, saveAutomations, createAutomation } from './automations.js';
+export type { Automation } from './automations.js';
 export { discoverSkills, parseFrontmatter } from './skills.js';
 export type { DiscoveredSkill } from './skills.js';
 export { discoverSubagents } from './subagents.js';
@@ -39,6 +41,7 @@ export type { MockStep, MockProvider } from './providers/mock.js';
 export { builtinTools } from './tools/index.js';
 export { readTool, writeTool, editTool, bashTool, globTool, grepTool, todoWriteTool, askUserQuestionTool } from './tools/index.js';
 export { createWebFetchTool, createWebSearchTool, htmlToText, parseDuckResults, loadWebConfig } from './tools/index.js';
+export { createCronCreateTool, createCronUpdateTool, createCronDeleteTool, createCronListTool } from './tools/cron.js';
 export type { FetchLike, WebConfig } from './tools/index.js';
 export { globToRegExp, walkFiles } from './tools/search.js';
 export { TODO_STATE_KEY } from './tools/interaction.js';

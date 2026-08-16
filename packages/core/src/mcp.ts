@@ -17,6 +17,10 @@ import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { ToolDefinition, ToolResult } from '@bajin/shared';
+function stateHome(home?: string): string {
+  if (home) return path.join(home, '.bajin');
+  return process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/') ? process.env.BAJIN_HOME : path.join(os.homedir(), '.bajin');
+}
 
 export interface McpStdioServerConfig {
   type: 'stdio';
@@ -34,9 +38,9 @@ const INIT_TIMEOUT_MS = 10_000;
 const CALL_TIMEOUT_MS = 120_000;
 
 /** 读取用户级 config.json 的 mcpServers（缺省空对象；桌面端写入同一路径） */
-export async function loadMcpServerConfigs(home = os.homedir()): Promise<McpServerConfigs> {
+export async function loadMcpServerConfigs(home?: string): Promise<McpServerConfigs> {
   try {
-    const raw = JSON.parse(await fs.readFile(path.join(home, '.bajin', 'config.json'), 'utf8')) as { mcpServers?: McpServerConfigs };
+    const raw = JSON.parse(await fs.readFile(path.join(stateHome(home), 'config.json'), 'utf8')) as { mcpServers?: McpServerConfigs };
     return raw.mcpServers ?? {};
   } catch {
     return {};

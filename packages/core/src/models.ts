@@ -1,6 +1,10 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+function stateHome(home?: string): string {
+  if (home) return path.join(home, '.bajin');
+  return process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/') ? process.env.BAJIN_HOME : path.join(os.homedir(), '.bajin');
+}
 
 /**
  * 模型目录体系（对标 ZCode 的 models catalog + 自定义模型）：
@@ -68,11 +72,11 @@ export const BUILTIN_MODEL_IDS: readonly string[] = [
   'glm-4-32b',
 ];
 
-export function configFilePath(home = os.homedir()): string {
-  return path.join(home, '.bajin', 'config.json');
+export function configFilePath(home?: string): string {
+  return path.join(stateHome(home), 'config.json');
 }
 
-export async function readCustomModels(home = os.homedir()): Promise<CustomModel[]> {
+export async function readCustomModels(home?: string): Promise<CustomModel[]> {
   try {
     const raw = JSON.parse(await fs.readFile(configFilePath(home), 'utf8')) as { models?: unknown };
     if (!Array.isArray(raw.models)) return [];
@@ -86,7 +90,7 @@ export async function readCustomModels(home = os.homedir()): Promise<CustomModel
 }
 
 /** 写回自定义模型，保留 config.json 里的其他键 */
-export async function writeCustomModels(models: CustomModel[], home = os.homedir()): Promise<void> {
+export async function writeCustomModels(models: CustomModel[], home?: string): Promise<void> {
   const file = configFilePath(home);
   let config: Record<string, unknown> = {};
   try {
@@ -126,7 +130,7 @@ export function findCustomModel(id: string, custom: CustomModel[]): CustomModel 
 
 /* ---------- 供应商读写（~/.bajin/config.json 的 providers[]，保留其他键） ---------- */
 
-export async function readProviders(home = os.homedir()): Promise<ProviderEntry[]> {
+export async function readProviders(home?: string): Promise<ProviderEntry[]> {
   try {
     const raw = JSON.parse(await fs.readFile(configFilePath(home), 'utf8')) as { providers?: unknown };
     if (!Array.isArray(raw.providers)) return [];
@@ -138,7 +142,7 @@ export async function readProviders(home = os.homedir()): Promise<ProviderEntry[
   }
 }
 
-export async function writeProviders(providers: ProviderEntry[], home = os.homedir()): Promise<void> {
+export async function writeProviders(providers: ProviderEntry[], home?: string): Promise<void> {
   const file = configFilePath(home);
   let config: Record<string, unknown> = {};
   try {

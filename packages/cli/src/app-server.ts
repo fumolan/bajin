@@ -340,7 +340,13 @@ export class AppServer {
       }
       if (Date.now() >= a.nextRunAt) {
         a.lastRunAt = Date.now();
-        a.nextRunAt = nextCronRun(a.cron, new Date())?.getTime() ?? 0;
+        // 一次性任务（delayMinutes 创建）：触发后自动停用；周期任务重算下次
+        if (a.oneShot) {
+          a.enabled = false;
+          a.nextRunAt = 0;
+        } else {
+          a.nextRunAt = nextCronRun(a.cron, new Date())?.getTime() ?? 0;
+        }
         changed = true;
         void this.fireAutomation(a);
       }

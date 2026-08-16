@@ -1,6 +1,10 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+function stateHome(home?: string): string {
+  if (home) return path.join(home, '.bajin');
+  return process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/') ? process.env.BAJIN_HOME : path.join(os.homedir(), '.bajin');
+}
 
 /**
  * 自定义 slash 命令（对标 ZCode 的 commands 体系，净室实现）：
@@ -33,7 +37,7 @@ const NAME_RE = /^[a-z0-9][a-z0-9_:-]{0,63}$/;
 const KNOWN_KEYS = new Set(['description', 'argument-hint', 'allowed-tools', 'model', 'skills', 'disable-noninteractive']);
 
 /** 发现全部自定义命令（按优先级顺序返回，已去重） */
-export async function discoverCommands(cwd: string, home = os.homedir()): Promise<SlashCommand[]> {
+export async function discoverCommands(cwd: string, home?: string): Promise<SlashCommand[]> {
   const roots = await commandRoots(cwd, home);
   const seen = new Set<string>();
   const out: SlashCommand[] = [];
@@ -60,9 +64,9 @@ export async function discoverCommands(cwd: string, home = os.homedir()): Promis
 }
 
 /** 命令根目录列表（高 → 低）：用户级在前；工作区从 cwd 向上到 git 根每级收集 */
-async function commandRoots(cwd: string, home: string): Promise<Array<{ dir: string; source: 'user' | 'project' }>> {
+async function commandRoots(cwd: string, home?: string): Promise<Array<{ dir: string; source: 'user' | 'project' }>> {
   const roots: Array<{ dir: string; source: 'user' | 'project' }> = [
-    { dir: path.join(home, '.bajin', 'commands'), source: 'user' },
+    { dir: path.join(stateHome(home), 'commands'), source: 'user' },
   ];
   let dir = path.resolve(cwd);
   for (;;) {

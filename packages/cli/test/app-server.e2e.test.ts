@@ -88,7 +88,11 @@ afterEach(() => {
 });
 
 function startServer(): ServerHandle {
-  const child = spawn(process.execPath, [CLI_ENTRY, 'app-server', '--stdio'], { stdio: ['pipe', 'pipe', 'pipe'] });
+  // BAJIN_HOME 指向临时目录：e2e 不读写真实 ~/.bajin（用户数据绝不触碰）
+  const child = spawn(process.execPath, [CLI_ENTRY, 'app-server', '--stdio'], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, BAJIN_HOME: path.join(dir, 'state-home') },
+  });
   server = new ServerHandle(child);
   return server;
 }
@@ -250,10 +254,17 @@ describe('bajin app-server（多会话）', () => {
     const added = await s.request('models/add', { id: 'test-custom-model', label: '测试端点', baseUrl: 'https://llm.example.com/v1' });
     const custom = (added.result!['models'] as Array<{ id: string; source: string }>).filter((m) => m.source === 'custom');
     expect(custom.map((m) => m.id)).toContain('test-custom-model');
-    // 持久化到 ~/.bajin/config.json
-    const { readCustomModels, configFilePath } = await import('@bajin/core');
-    const persisted = await readCustomModels();
-    expect(persisted.some((m) => m.id === 'test-custom-model')).toBe(true);
+    // 持久化到 BAJIN_HOME（子进程沙箱）；测试进程读同一沙箱
+    const { readCustomModels } = await import('@bajin/core');
+    const prevHome = process.env.BAJIN_HOME;
+    process.env.BAJIN_HOME = path.join(dir, 'state-home');
+    try {
+      const persisted = await readCustomModels();
+      expect(persisted.some((m) => m.id === 'test-custom-model')).toBe(true);
+    } finally {
+      if (prevHome === undefined) delete process.env.BAJIN_HOME;
+      else process.env.BAJIN_HOME = prevHome;
+    }
     // 切到自定义模型仍可正常收发（mock provider）
     const switched = await s.request('set-model', { sessionId: sid, model: 'test-custom-model' });
     expect(switched.result!['model']).toBe('test-custom-model');
@@ -262,12 +273,7 @@ describe('bajin app-server（多会话）', () => {
     // 删除
     const removed = await s.request('models/remove', { id: 'test-custom-model' });
     expect((removed.result!['models'] as Array<{ id: string }>).some((m) => m.id === 'test-custom-model')).toBe(false);
-    // 清理测试写入的配置（避免污染真实 ~/.bajin/config.json 的其他键被覆盖前先恢复）
-    const fs = await import('node:fs');
-    const cfgPath = configFilePath();
-    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as { models?: unknown[] };
-    delete cfg.models;
-    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+    // 配置写入沙箱 BAJIN_HOME（临时目录随测试回收），无需再清理真实 ~/.bajin
   });
 
   it('供应商管理 + 模型挂供应商（端点解析链）', async () => {

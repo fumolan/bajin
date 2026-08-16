@@ -8,6 +8,10 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+function stateHome(home?: string): string {
+  if (home) return path.join(home, '.bajin');
+  return process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/') ? process.env.BAJIN_HOME : path.join(os.homedir(), '.bajin');
+}
 
 export interface SubagentDef {
   name: string;
@@ -46,10 +50,10 @@ function parseDef(raw: string, file: string, source: 'user' | 'project'): Subage
 }
 
 /** 发现顺序：用户级 → 项目级（近的覆盖远的，同 skills/commands 约定） */
-export async function discoverSubagents(cwd: string, home = os.homedir()): Promise<SubagentDef[]> {
+export async function discoverSubagents(cwd: string, home?: string): Promise<SubagentDef[]> {
   const out = new Map<string, SubagentDef>();
   for (const [dir, source] of [
-    [path.join(home, '.bajin', 'agents'), 'user'],
+    [path.join(stateHome(home), 'agents'), 'user'],
     [path.join(cwd, '.bajin', 'agents'), 'project'],
   ] as const) {
     let files: string[] = [];

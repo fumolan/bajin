@@ -2,6 +2,10 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { SkillSummary } from './prompt.js';
+function stateHome(home?: string): string {
+  if (home) return path.join(home, '.bajin');
+  return process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/') ? process.env.BAJIN_HOME : path.join(os.homedir(), '.bajin');
+}
 
 export interface DiscoveredSkill extends SkillSummary {
   /** SKILL.md 绝对路径 */
@@ -12,10 +16,10 @@ export interface DiscoveredSkill extends SkillSummary {
 }
 
 /** 发现顺序（高 → 低）：项目 .bajin/skills → 用户 ~/.bajin/skills；同名先到先得 */
-export async function discoverSkills(cwd: string, home = os.homedir()): Promise<DiscoveredSkill[]> {
+export async function discoverSkills(cwd: string, home?: string): Promise<DiscoveredSkill[]> {
   const roots: Array<{ dir: string; source: 'project' | 'user' }> = [
     { dir: path.join(cwd, '.bajin', 'skills'), source: 'project' },
-    { dir: path.join(home, '.bajin', 'skills'), source: 'user' },
+    { dir: path.join(stateHome(home), 'skills'), source: 'user' },
   ];
   const seen = new Set<string>();
   const out: DiscoveredSkill[] = [];
