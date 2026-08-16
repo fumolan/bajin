@@ -64,8 +64,11 @@ interface CustomCommand {
 
 type View = 'chat' | 'settings' | 'search' | 'automations' | 'skills' | 'knowledge';
 
-/** 设置页二级分区（对标 ZCode 设置页左侧导航） */
-type SettingsSection = 'general' | 'models' | 'agent' | 'usage' | 'logs' | 'about';
+/** 设置页二级分区（对标 ZCode 设置页左侧导航；Agent 组 8 项与 ZCode agentCapabilities 一一对应） */
+type SettingsSection =
+  | 'general' | 'models'
+  | 'agent-memory' | 'agent-plugins' | 'agent-skills' | 'agent-subagents' | 'agent-automations' | 'agent-mcp' | 'agent-commands' | 'agent-hooks'
+  | 'usage' | 'logs' | 'about';
 
 const MODES = ['plan', 'build', 'edit', 'yolo'];
 
@@ -84,7 +87,9 @@ const EN: Record<string, string> = {
   '新建任务': 'New Task', '搜索': 'Search', '自动化': 'Automations', '技能': 'Skills', '知识图谱': 'Knowledge',
   '分组': 'Groups', '项目': 'Projects', '已置顶': 'Pinned', '未分组': 'Ungrouped', '未知目录': 'Unknown Dir',
   '基础': 'Basics', '数据与统计': 'Data & Stats', '关于': 'About', '常规': 'General', '模型设置': 'Models',
-  'Agent 能力': 'Agent', 'Agent 设置': 'Agent', '使用统计': 'Usage', '日志': 'Logs', '帮助': 'Help',
+  'Agent 能力': 'Agent', '使用统计': 'Usage', '日志': 'Logs', '帮助': 'Help',
+  '记忆': 'Memory', '插件': 'Plugins', '技能': 'Skills', '子代理': 'Subagents',
+  '自动化': 'Automations', '命令': 'Commands', '钩子': 'Hooks',
   '搜索任务...': 'Search tasks...', '暂无任务（发送消息后生成）': 'No tasks yet', '刷新任务列表': 'Refresh',
   '设置': 'Settings', '终端': 'Terminal', '面板': 'Panel',
   '开始对话': 'Start a conversation', '早上好呀，新的一天开始啦': 'Good morning, a fresh day begins',
@@ -162,7 +167,14 @@ const SETTINGS_NAV: Array<{ group: string; items: Array<{ id: SettingsSection; i
   {
     group: 'Agent 能力',
     items: [
-      { id: 'agent', icon: '🤖', label: 'Agent 设置' },
+      { id: 'agent-memory', icon: '🧠', label: '记忆' },
+      { id: 'agent-plugins', icon: '🧩', label: '插件' },
+      { id: 'agent-skills', icon: '🛠', label: '技能' },
+      { id: 'agent-subagents', icon: '👥', label: '子代理' },
+      { id: 'agent-automations', icon: '⏰', label: '自动化' },
+      { id: 'agent-mcp', icon: '🔌', label: 'MCP' },
+      { id: 'agent-commands', icon: '⌨', label: '命令' },
+      { id: 'agent-hooks', icon: '🪝', label: '钩子' },
     ],
   },
   {
@@ -1151,7 +1163,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 27</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 28</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
@@ -1378,6 +1390,7 @@ function App() {
               }}
               uiSettings={uiSettings}
               patchUiSettings={patchUiSettings}
+              onOpenSession={(sid) => { setView('chat'); void openHistory(sid); }}
             />
           )}
           {view === 'search' && <SearchView onOpen={(sid) => { setView('chat'); void openHistory(sid); }} />}
@@ -1754,7 +1767,7 @@ function WelcomePage({ onPickTemplate, input, setInput, onSend, busy, cwd, onPic
 
 /* ---------- 设置页（对标 ZCode：左侧二级导航 + 右侧分区详情） ---------- */
 
-function SettingsView({ section, onSection, isMock, models, providers, refreshModels, refreshProviders, onUseModel, uiSettings, patchUiSettings }: {
+function SettingsView({ section, onSection, isMock, models, providers, refreshModels, refreshProviders, onUseModel, uiSettings, patchUiSettings, onOpenSession }: {
   section: SettingsSection;
   onSection: (s: SettingsSection) => void;
   isMock: boolean;
@@ -1765,6 +1778,7 @@ function SettingsView({ section, onSection, isMock, models, providers, refreshMo
   onUseModel: (id: string) => void;
   uiSettings: UISettings;
   patchUiSettings: (patch: Partial<UISettings>) => void;
+  onOpenSession: (sid: string) => void;
 }): ReactNode {
   return (
     <div className="settings-shell">
@@ -1792,7 +1806,14 @@ function SettingsView({ section, onSection, isMock, models, providers, refreshMo
             onUse={onUseModel}
           />
         )}
-        {section === 'agent' && <AgentSection />}
+        {section === 'agent-memory' && <AgentMemorySection />}
+        {section === 'agent-plugins' && <AgentPluginsSection />}
+        {section === 'agent-skills' && <SkillsView />}
+        {section === 'agent-subagents' && <AgentSubagentsSection />}
+        {section === 'agent-automations' && <AutomationsView onOpenSession={onOpenSession} />}
+        {section === 'agent-mcp' && <AgentMcpSection />}
+        {section === 'agent-commands' && <AgentCommandsSection />}
+        {section === 'agent-hooks' && <AgentHooksSection />}
         {section === 'usage' && <UsageView />}
         {section === 'logs' && <LogsView />}
         {section === 'about' && <HelpView />}
@@ -2102,15 +2123,35 @@ const HOOK_EVENT_LABELS: Record<string, string> = {
   Stop: '任务停止',
 };
 
-function AgentSection({ onNavigate }: { onNavigate: (v: View) => void }): ReactNode {
+/* ---------- Agent 能力分区（对标 ZCode agentCapabilities：8 个独立页一一对应） ---------- */
+
+function AgentMemorySection(): ReactNode {
   return (
     <div className="vp-inner">
-      <h2>Agent 设置 <span className="log-meta">扩展 Agent 能力的资源与钩子</span></h2>
+      <h2>记忆 <span className="log-meta">模型经 Memory 工具读写的长期偏好与事实</span></h2>
+      <MemoryCard />
+    </div>
+  );
+}
 
-      <HooksCard />
-      <McpCard />
+function AgentPluginsSection(): ReactNode {
+  return (
+    <div className="vp-inner">
+      <h2>插件 <span className="log-meta">Plugin marketplace</span></h2>
+      <div className="card flat">
+        <div className="settings-row">
+          <span>插件市场<span className="settings-desc">安装/启用/禁用插件（技能包、命令包、MCP 集成），对标 ZCode plugins</span></span>
+          <span className="log-meta">规划中</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-      <h3>子代理</h3>
+function AgentSubagentsSection(): ReactNode {
+  return (
+    <div className="vp-inner">
+      <h2>子代理 <span className="log-meta">Subagents——独立上下文的子任务代理</span></h2>
       <div className="card flat">
         <div className="settings-row">
           <span>Explore<span className="settings-desc">只读调研代理（Read/Glob/Grep/Bash），返回结论不占主上下文</span></span>
@@ -2122,29 +2163,52 @@ function AgentSection({ onNavigate }: { onNavigate: (v: View) => void }): ReactN
         </div>
         <SubagentList />
       </div>
+    </div>
+  );
+}
 
-      <h3>能力资源</h3>
+function AgentMcpSection(): ReactNode {
+  return (
+    <div className="vp-inner">
+      <h2>MCP <span className="log-meta">Model Context Protocol 服务器</span></h2>
+      <McpCard />
+    </div>
+  );
+}
+
+function AgentHooksSection(): ReactNode {
+  return (
+    <div className="vp-inner">
+      <h2>钩子 <span className="log-meta">Hooks——会话/工具生命周期自定义命令</span></h2>
+      <HooksCard />
+    </div>
+  );
+}
+
+/** 命令分区（对标 ZCode commands：自定义 slash 命令列表，发现自 ~/.bajin/commands 与项目 .bajin/commands） */
+function AgentCommandsSection(): ReactNode {
+  const [cmds, setCmds] = useState<Array<{ name: string; description?: string; source?: string }>>([]);
+  useEffect(() => {
+    void window.bajin.rpc<{ commands: Array<{ name: string; description?: string; source?: string }> }>('commands/list')
+      .then((r) => setCmds(r.commands ?? []))
+      .catch(() => setCmds([]));
+  }, []);
+  return (
+    <div className="vp-inner">
+      <h2>命令 <span className="log-meta">自定义 slash 命令（/name 触发）</span></h2>
       <div className="card flat">
-        <div className="settings-row nav-row" onClick={() => onNavigate('skills')}>
-          <span>🛠 技能<span className="settings-desc">Skill 目录管理（用户级与工作区级）</span></span>
-          <span className="chevron">▸</span>
-        </div>
-        <div className="settings-row nav-row" onClick={() => onNavigate('automations')}>
-          <span>⏰ 自动化<span className="settings-desc">定时任务调度</span></span>
-          <span className="chevron">▸</span>
-        </div>
-        <div className="settings-row nav-row" onClick={() => onNavigate('knowledge')}>
-          <span>🕸 知识图谱<span className="settings-desc">知识库索引</span></span>
-          <span className="chevron">▸</span>
-        </div>
-      </div>
-
-      <h3>记忆</h3>
-      <MemoryCard />
-
-      <h3>规划中（未实现）</h3>
-      <div className="card flat">
-        <div className="settings-row"><span>插件市场</span><span className="log-meta">下一批</span></div>
+        {cmds.length > 0 ? (
+          cmds.map((c) => (
+            <div key={c.name} className="settings-row">
+              <span><code>/{c.name}</code><span className="settings-desc">{c.description ?? ''}</span></span>
+              <span className="log-meta">{c.source === 'project' ? '项目级' : c.source === 'user' ? '用户级' : c.source ?? ''}</span>
+            </div>
+          ))
+        ) : (
+          <div className="settings-row">
+            <span>暂无自定义命令<span className="settings-desc">在 ~/.bajin/commands/ 或项目 .bajin/commands/ 放 *.md（frontmatter: description，正文为提示词），会话输入 / 即可补全</span></span>
+          </div>
+        )}
       </div>
     </div>
   );
