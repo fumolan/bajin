@@ -118,15 +118,25 @@ export async function listSessions(persistDir: string, limit = 30): Promise<Sess
     const dir = path.join(persistDir, name);
     const transcriptPath = path.join(dir, 'transcript.jsonl');
     const stat = await fs.stat(transcriptPath).catch(() => null);
-    if (!stat?.isFile()) continue;
-    const { messages, meta } = await loadTranscript(transcriptPath);
+    // 有 meta.json 即算会话（新建未发首条消息的空会话也要出现在列表/项目分组，对标 ZCode）
+    const metaStat = stat?.isFile() ? null : await fs.stat(path.join(dir, 'meta.json')).catch(() => null);
+    if (!stat?.isFile() && !metaStat?.isFile()) continue;
+    const loaded = await loadTranscript(transcriptPath);
+    const messages = loaded.messages;
+    // 空会话（无 transcript）：loadTranscript 提前返回不带 meta，此处补读
+    let meta = loaded.meta;
+    if (!meta && metaStat?.isFile()) {
+      meta = await fs.readFile(path.join(dir, 'meta.json'), 'utf8')
+        .then((r) => JSON.parse(r) as SessionMeta)
+        .catch(() => undefined);
+    }
     const firstUser = messages.find((m) => m.role === 'user');
     out.push({
       sessionId: name,
       dir,
       transcriptPath,
-      modifiedAt: stat.mtimeMs,
-      title: firstUser && firstUser.role === 'user' ? firstUser.content.slice(0, 60) : '(无标题)',
+      modifiedAt: stat?.mtimeMs ?? metaStat!.mtimeMs,
+      title: meta?.title?.trim() || (firstUser && firstUser.role === 'user' ? firstUser.content.slice(0, 60) : '') || '(新会话)',
       meta,
     });
   }
