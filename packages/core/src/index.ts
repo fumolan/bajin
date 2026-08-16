@@ -14,7 +14,7 @@ export { parseCron, nextCronRun } from './cron.js';
 export type { CronFields } from './cron.js';
 export { automationsPath, loadAutomations, saveAutomations, createAutomation } from './automations.js';
 export type { Automation } from './automations.js';
-export { discoverSkills, parseFrontmatter } from './skills.js';
+export { discoverSkills, parseFrontmatter, BUILTIN_SKILLS, seedBuiltinSkills } from './skills.js';
 export type { DiscoveredSkill } from './skills.js';
 export { discoverSubagents } from './subagents.js';
 export type { SubagentDef } from './subagents.js';

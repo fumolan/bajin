@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import { promises as fs } from 'node:fs';
 import {
   Agent, createGlmProvider, createAnthropicProvider, createMockProvider, listSessions, PermissionPolicy, discoverSkills,
-  discoverCommands, findCommand, expandCommand, loadHooksConfig, discoverSubagents, readMemories, clearMemories,
+  discoverCommands, findCommand, expandCommand, loadHooksConfig, discoverSubagents, readMemories, clearMemories, seedBuiltinSkills,
   openSessionStore, storeUpsertSession, storeAppendMessage, storeUpdateSessionMeta, storeDeleteSession, storeReplaceTodos, storeListSessions,
   rewindTranscript, discoverProjectConfigFiles, envSettingsOverlay, type SessionStore,
   mergeModelOptions, readCustomModels, writeCustomModels, resolveModelEndpoint,
@@ -257,6 +257,8 @@ export class AppServer {
     this.allowedTools = params.allowedTools ?? [];
     this.disallowedTools = params.disallowedTools ?? [];
     this.apiKey = params.apiKey ?? this.apiKey;
+    // 首启种入内置默认技能（缺失才写，用户编辑过不覆盖；幂等）
+    await seedBuiltinSkills().catch(() => undefined);
     this.baseUrl = params.baseUrl ?? this.baseUrl;
     this.persist = params.persist ?? false;
     this.customModels = await readCustomModels();
