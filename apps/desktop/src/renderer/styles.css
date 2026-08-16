@@ -722,19 +722,20 @@ pre.diff {
 .settings-row.nav-row { cursor: pointer; }
 .settings-row.nav-row:hover > span:first-child { color: var(--text); }
 
-/* 开关（对标 ZCode 设置页 switch） */
+/* 开关（对标 ZCode：开=实心主色白钮，关=灰轨深钮，状态一眼可辨） */
 .switch {
-  width: 34px; height: 19px; border-radius: var(--r-pill); border: none; cursor: pointer;
-  background: var(--panel-2); border: 1px solid var(--border-strong);
+  width: 34px; height: 19px; border-radius: var(--r-pill); border: 1px solid var(--border-strong); cursor: pointer;
+  background: rgba(125, 130, 144, 0.35);
   position: relative; transition: background .15s, border-color .15s; flex: none;
   padding: 0;
 }
 .switch-knob {
   position: absolute; top: 2px; left: 2px; width: 13px; height: 13px;
   border-radius: 50%; background: var(--dim); transition: left .15s, background .15s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
-.switch.on { background: var(--accent-soft); border-color: var(--accent); }
-.switch.on .switch-knob { left: 17px; background: var(--accent); }
+.switch.on { background: var(--accent); border-color: var(--accent); }
+.switch.on .switch-knob { left: 17px; background: #fff; }
 
 /* hooks 列表 */
 .hooks-list { display: flex; flex-direction: column; gap: 4px; padding: 8px 0 2px; }
@@ -1127,4 +1128,13 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
 .skill-path {
   font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; display: inline-block;
+}
+
+/* 技能正文弹框 */
+.skill-content-modal { max-width: 720px; width: min(720px, 90vw); }
+.skill-content-body {
+  margin: 0; padding: 14px 18px 18px; max-height: 60vh; overflow: auto;
+  font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  background: var(--bg); border-top: 1px solid var(--border);
+  font-family: inherit;
 }

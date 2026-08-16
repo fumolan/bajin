@@ -102,7 +102,9 @@ const EN: Record<string, string> = {
   '复制会话 ID': 'Copy session ID', '前往配置': 'Open settings', '查看调用轨迹': 'View trajectory',
   '反馈问题': 'Feedback', '任务视图选项': 'Task view options', '排序': 'Sort by',
   '按更新时间': 'Updated time', '按创建时间': 'Created time', '收起全部分组': 'Collapse all groups',
-  '外观': 'Appearance', '浏览器': 'Browser', '界面主题与色调': 'Interface theme & tint',
+  '自定义技能': 'Custom skills', '内置技能': 'Built-in skills',
+  '还没有自定义技能：点右上「＋ 新建技能」，或在 ~/.bajin/skills/<名称>/SKILL.md 手写': 'No custom skills yet: click "+ New skill", or hand-write ~/.bajin/skills/<name>/SKILL.md',
+  '没有匹配的技能': 'No matching skills', '外观': 'Appearance', '浏览器': 'Browser', '界面主题与色调': 'Interface theme & tint',
   '界面': 'Interface', '浅色调 / 深色调 / 跟随系统，即时生效': 'Light / Dark / System, applied instantly',
   '跟随系统': 'System', '深色调': 'Dark', '浅色调': 'Light',
   '内嵌网页的缓存与站点数据维护': 'Cache & site data maintenance for embedded web views',
@@ -1300,7 +1302,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 33</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 34</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
@@ -3265,8 +3267,11 @@ function SkillsView(): ReactNode {
 
   const q = query.trim().toLowerCase();
   const filtered = q ? skills.filter((x) => x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)) : skills;
+  const custom = filtered.filter((x) => !BUILTIN_SKILL_NAMES.has(x.name));
+  const builtin = filtered.filter((x) => BUILTIN_SKILL_NAMES.has(x.name));
   const groups: Array<{ label: string; items: typeof filtered }> = [
-    { label: LANG === 'en-US' ? 'Local skills' : '本地技能', items: filtered },
+    { label: LANG === 'en-US' ? 'Custom skills' : '自定义技能', items: custom },
+    { label: LANG === 'en-US' ? 'Built-in skills' : '内置技能', items: builtin },
   ];
 
   async function toggle(name: string, enabled: boolean): Promise<void> {
@@ -3294,6 +3299,13 @@ function SkillsView(): ReactNode {
         groups.map((g) => (
           <div key={g.label} className="skill-group">
             <div className="settings-nav-group-title">{g.label} · {g.items.length}</div>
+            {g.items.length === 0 && (
+              <div className="history-empty" style={{ padding: '8px 4px' }}>
+                {g.label === t('自定义技能')
+                  ? t('还没有自定义技能：点右上「＋ 新建技能」，或在 ~/.bajin/skills/<名称>/SKILL.md 手写')
+                  : (q ? t('没有匹配的技能') : '')}
+              </div>
+            )}
             <div className="provider-cards">
               {g.items.map((sk) => (
                 <div key={sk.name} className={`provider-card skill-card ${expanded === sk.name ? 'expanded' : ''}`}>
@@ -3336,11 +3348,15 @@ function SkillsView(): ReactNode {
       )}
 
       {content && (
-        <>
-          <h3>{content.name} · SKILL.md</h3>
-          <pre className="log-tail">{content.content}</pre>
-          <div className="card-actions"><button onClick={() => setContent(null)}>{t('关闭')}</button></div>
-        </>
+        <div className="modal-overlay" onClick={() => setContent(null)}>
+          <div className="modal skill-content-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <span>🛠 {content.name} · SKILL.md</span>
+              <button className="icon-btn" onClick={() => setContent(null)}>×</button>
+            </div>
+            <pre className="skill-content-body">{content.content}</pre>
+          </div>
+        </div>
       )}
 
       {showCreate && (
