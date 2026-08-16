@@ -25,6 +25,8 @@ export interface BajinApi {
   dataDirGet(): Promise<string | null>;
   dataMigrate(target: string): Promise<{ ok: boolean; error?: string }>;
   notify(title: string, body: string): Promise<boolean>;
+  revealPath(p: string): Promise<boolean>;
+  openExternal(url: string): Promise<boolean>;
   hooksGet<T = Record<string, unknown> | null>(): Promise<T>;
   hooksSetEnabled(enabled: boolean): Promise<Record<string, unknown>>;
   hooksSave(hooks: Record<string, unknown>): Promise<Record<string, unknown>>;
@@ -57,6 +59,8 @@ const api: BajinApi = {
   dataDirGet: () => ipcRenderer.invoke('bajin:config:data-dir'),
   dataMigrate: (target) => ipcRenderer.invoke('bajin:data:migrate', target),
   notify: (title, body) => ipcRenderer.invoke('bajin:notify', title, body),
+  revealPath: (p) => ipcRenderer.invoke('bajin:reveal-path', p),
+  openExternal: (url) => ipcRenderer.invoke('bajin:open-external', url),
   hooksGet: () => ipcRenderer.invoke('bajin:hooks:get'),
   hooksSetEnabled: (enabled: boolean) => ipcRenderer.invoke('bajin:hooks:set-enabled', enabled),
   hooksSave: (hooks) => ipcRenderer.invoke('bajin:hooks:save', hooks),

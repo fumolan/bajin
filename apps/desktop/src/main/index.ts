@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Notification } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Notification, shell } from 'electron';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { readFileSync, writeFileSync, existsSync, cpSync } from 'node:fs';
@@ -27,6 +27,8 @@ interface UserConfig {
     taskAutoArchiveOlderThanDays?: number;
     terminalShell?: string;
     terminalFontFamily?: string;
+    showArchivedTasks?: boolean;
+    taskSortBy?: 'updated' | 'created';
     /** 网络代理（spawn agent 时注入 HTTPS_PROXY 等环境变量，Node24 NODE_USE_ENV_PROXY 生效） */
     proxy?: { httpProxy?: string; noProxy?: string; caCertPath?: string };
   };
@@ -189,6 +191,20 @@ app.whenReady().then(() => {
     uc.settings = { ...uc.settings, ...patch };
     writeUserConfig(uc);
     return uc.settings;
+  });
+
+  // 在系统文件管理器中定位（任务菜单「在文件管理器中打开」）
+  ipcMain.handle('bajin:reveal-path', (_e, p: string) => {
+    if (typeof p !== 'string' || !p.startsWith('/')) return false;
+    shell.showItemInFolder(p);
+    return true;
+  });
+
+  // 外部浏览器打开（反馈问题等外链）
+  ipcMain.handle('bajin:open-external', (_e, url: string) => {
+    if (!/^https:\/\//.test(url)) return false;
+    void shell.openExternal(url);
+    return true;
   });
 
   // 系统通知（任务完成时由渲染层触发）

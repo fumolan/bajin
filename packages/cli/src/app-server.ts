@@ -200,6 +200,10 @@ export class AppServer {
           return respond(await this.sessionMutateMeta(p as unknown as { sessionId: string }, { title: (v) => String(v ?? '').trim().slice(0, 120) }));
         case 'session/pin':
           return respond(await this.sessionMutateMeta(p as unknown as { sessionId: string }, { pinned: (v) => v === true }));
+        case 'session/archive':
+          return respond(await this.sessionMutateMeta(p as unknown as { sessionId: string }, { archived: (v) => v === true }));
+        case 'session/unread':
+          return respond(await this.sessionMutateMeta(p as unknown as { sessionId: string }, { unread: (v) => v === true }));
         case 'session/delete':
           return respond(await this.sessionDelete(p as unknown as { sessionId: string }));
         case 'session/rewind':
@@ -1090,9 +1094,14 @@ export class AppServer {
         // 标题优先级：store.title > meta.title > 首条用户消息（双写期 store 最新）
         title: storeTitle ?? (((meta['title'] as string | undefined)?.trim()) || s.title),
         modifiedAt: s.modifiedAt,
+        createdAt: Date.parse(String(meta['createdAt'] ?? '')) || s.modifiedAt,
         group: (row?.group ?? (meta['group'] as string | undefined)) ?? null,
         cwd: (meta['cwd'] as string | undefined) ?? null,
         pinned: row?.pinned != null ? row.pinned === 1 : meta['pinned'] === true,
+        archived: meta['archived'] === true,
+        unread: meta['unread'] === true,
+        sessionDir: s.dir,
+        rolloutPath: path.join(this.rolloutDir(), `model-io-${s.sessionId}.jsonl`),
       });
     }
     return out;

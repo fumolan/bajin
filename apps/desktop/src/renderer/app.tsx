@@ -34,9 +34,14 @@ interface HistoryItem {
   sessionId: string;
   title: string;
   modifiedAt: number;
+  createdAt?: number;
   group: string | null;
   cwd: string | null;
   pinned?: boolean;
+  archived?: boolean;
+  unread?: boolean;
+  sessionDir?: string;
+  rolloutPath?: string;
 }
 
 interface ModelOpt {
@@ -90,6 +95,14 @@ const EN: Record<string, string> = {
   'Agent 能力': 'Agent', '使用统计': 'Usage', '日志': 'Logs', '帮助': 'Help',
   '记忆': 'Memory', '插件': 'Plugins', '技能': 'Skills', '子代理': 'Subagents',
   '自动化': 'Automations', '命令': 'Commands', '钩子': 'Hooks',
+  '置顶任务': 'Pin task', '取消置顶任务': 'Unpin task', '重命名任务': 'Rename task',
+  '归档任务': 'Archive task', '取消归档任务': 'Unarchive task', '标记为未读': 'Mark as unread',
+  '在分屏打开': 'Open in split pane', '在文件管理器中打开': 'Reveal in file manager',
+  '复制路径': 'Copy path', '复制任务路径': 'Copy task path', '复制日志路径': 'Copy log path',
+  '复制会话 ID': 'Copy session ID', '前往配置': 'Open settings', '查看调用轨迹': 'View trajectory',
+  '反馈问题': 'Feedback', '任务视图选项': 'Task view options', '排序': 'Sort by',
+  '按更新时间': 'Updated time', '按创建时间': 'Created time', '收起全部分组': 'Collapse all groups',
+  '展开全部分组': 'Expand all groups', '显示归档任务': 'Show archived tasks',
   '搜索任务...': 'Search tasks...', '暂无任务（发送消息后生成）': 'No tasks yet', '刷新任务列表': 'Refresh',
   '设置': 'Settings', '终端': 'Terminal', '面板': 'Panel',
   '开始对话': 'Start a conversation', '早上好呀，新的一天开始啦': 'Good morning, a fresh day begins',
@@ -448,18 +461,65 @@ function WorkspaceChip({ cwd, onPick }: { cwd?: string; onPick: (dir: string | n
 
 let bootHome: string | null = null;
 
-/** 任务项：点击打开 + 悬浮菜单（置顶/重命名/移动分组/删除，对标 taskList.*） */
-function TaskListItem({ item, showProject, onOpen, onChanged }: {
+/** 任务视图选项菜单（对标 workspaceSidebar.organize/sortBy/toggleArchivedTasks） */
+function TaskViewOptionsMenu({ sortBy, onSortBy, showArchived, onShowArchived, collapsed, onCollapseAll, onExpandAll }: {
+  sortBy: 'updated' | 'created';
+  onSortBy: (v: 'updated' | 'created') => void;
+  showArchived: boolean;
+  onShowArchived: (v: boolean) => void;
+  collapsed: Set<string>;
+  onCollapseAll: () => void;
+  onExpandAll: () => void;
+}): ReactNode {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  function toggle(): void {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - 220) });
+    }
+    setOpen((v) => !v);
+  }
+  return (
+    <div className="tvo-menu-wrap">
+      <button ref={btnRef} className={`tvo-trigger ${open ? 'on' : ''}`} title={t('任务视图选项')} onClick={toggle}>▾</button>
+      {open && createPortal(
+        <div className="ws-backdrop" onClick={() => setOpen(false)}>
+          <div className="history-menu tvo-menu" style={{ position: 'fixed', top: pos.top, left: pos.left }} onClick={(e) => e.stopPropagation()}>
+            <div className="menu-title">{t('排序')}</div>
+            <button className={sortBy === 'updated' ? 'checked' : ''} onClick={() => { onSortBy('updated'); setOpen(false); }}>{sortBy === 'updated' ? '● ' : '○ '}{t('按更新时间')}</button>
+            <button className={sortBy === 'created' ? 'checked' : ''} onClick={() => { onSortBy('created'); setOpen(false); }}>{sortBy === 'created' ? '● ' : '○ '}{t('按创建时间')}</button>
+            <div className="menu-sep" />
+            <button onClick={() => { onCollapseAll(); setOpen(false); }} disabled={!collapsed.size ? false : false}>{t('收起全部分组')}</button>
+            <button onClick={() => { onExpandAll(); setOpen(false); }}>{t('展开全部分组')}</button>
+            <div className="menu-sep" />
+            <button className={showArchived ? 'checked' : ''} onClick={() => onShowArchived(!showArchived)}>{showArchived ? '✓ ' : ''}{t('显示归档任务')}</button>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
+/** 任务项：点击打开 + 悬浮菜单（对标 ZCode taskList 13 项，顺序一致） */
+function TaskListItem({ item, showProject, onOpen, onChanged, onGoSettings }: {
   item: HistoryItem;
   showProject: boolean;
   onOpen: () => void;
   onChanged: () => void;
+  onGoSettings: (sec: SettingsSection) => void;
 }): ReactNode {
   const [menu, setMenu] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [grouping, setGrouping] = useState(false);
   const [draft, setDraft] = useState(item.title);
   const [groupName, setGroupName] = useState(item.group ?? '');
+
+  function copy(text: string): void {
+    if (text) void navigator.clipboard.writeText(text).catch(() => undefined);
+  }
 
   async function act(method: string, params: Record<string, unknown>): Promise<void> {
     await window.bajin.rpc(method, { sessionId: item.sessionId, ...params }).catch(() => undefined);
@@ -497,7 +557,7 @@ function TaskListItem({ item, showProject, onOpen, onChanged }: {
           />
         ) : (
           <>
-            <span className="history-title">{item.title || '(无标题)'}</span>
+            <span className={`history-title ${item.unread ? 'unread' : ''}`}>{item.unread ? '● ' : ''}{item.title || '(无标题)'}</span>
             <span className="history-time">{formatTaskTime(item.modifiedAt)}</span>
           </>
         )}
@@ -511,21 +571,22 @@ function TaskListItem({ item, showProject, onOpen, onChanged }: {
       )}
       {menu && !renaming && !grouping && (
         <div className="history-menu" onClick={(e) => e.stopPropagation()}>
-          <button onClick={() => { setMenu(false); setRenaming(true); }}>重命名</button>
-          <button onClick={() => void act('session/pin', { pinned: !item.pinned })}>{item.pinned ? '取消置顶' : '置顶'}</button>
-          <button onClick={() => { setMenu(false); setGrouping(true); }}>{item.group ? `移动分组（当前：${item.group}）` : '移动到分组'}</button>
-          <button
-            onClick={() => {
-              setMenu(false);
-              if (confirm(`回退「${item.title || item.sessionId}」最近 1 轮对话并打开？（之后的轮次将被删除）`)) {
-                void window.bajin.rpc('session/rewind', { sessionId: item.sessionId, n: 1 })
-                  .then(() => { onChanged(); onOpen(); })
-                  .catch(() => undefined);
-              }
-            }}
-          >⏪ 回退 1 轮并打开</button>
+          <button onClick={() => void act('session/pin', { pinned: !item.pinned })}>{item.pinned ? t('取消置顶任务') : t('置顶任务')}</button>
+          <button onClick={() => { setMenu(false); setRenaming(true); }}>{t('重命名任务')}</button>
+          <button onClick={() => void act('session/archive', { archived: !item.archived })}>{item.archived ? t('取消归档任务') : t('归档任务')}</button>
+          <button onClick={() => void act('session/unread', { unread: true })}>{t('标记为未读')}</button>
           <div className="menu-sep" />
-          <button className="danger" onClick={() => { if (confirm(`删除任务「${item.title || item.sessionId}」？不可恢复`)) void act('session/delete', {}); }}>删除</button>
+          <button onClick={() => { setMenu(false); onOpen(); }}>{t('在分屏打开')}</button>
+          <button onClick={() => { setMenu(false); void window.bajin.revealPath(item.sessionDir ?? item.cwd ?? ''); }}>{t('在文件管理器中打开')}</button>
+          <div className="menu-sep" />
+          <button onClick={() => { setMenu(false); copy(item.cwd ?? ''); }}>{t('复制路径')}</button>
+          <button onClick={() => { setMenu(false); copy(item.sessionDir ?? ''); }}>{t('复制任务路径')}</button>
+          <button onClick={() => { setMenu(false); copy(item.rolloutPath ?? ''); }}>{t('复制日志路径')}</button>
+          <button onClick={() => { setMenu(false); copy(item.sessionId); }}>{t('复制会话 ID')}</button>
+          <div className="menu-sep" />
+          <button onClick={() => { setMenu(false); onGoSettings('models'); }}>{t('前往配置')}</button>
+          <button onClick={() => { setMenu(false); onGoSettings('logs'); }}>{t('查看调用轨迹')}</button>
+          <button onClick={() => { setMenu(false); void window.bajin.openExternal('https://github.com/'); }}>{t('反馈问题')}</button>
         </div>
       )}
     </div>
@@ -634,6 +695,7 @@ function App() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [taskViewMode, setTaskViewMode] = useState<TaskViewMode>('grouped');
   const [taskFilter, setTaskFilter] = useState('');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [view, setView] = useState<View>('chat');
   const [settingsSection, setSettingsSection] = useState<SettingsSection>('general');
   const [models, setModels] = useState<ModelOpt[]>([]);
@@ -709,6 +771,28 @@ function App() {
     } catch {
       /* 忽略 */
     }
+  }, []);
+
+  /** 任务列表可见集：归档过滤（显示归档开关）+ 排序（更新时间/创建时间，置顶不动） */
+  const visibleHistory = useCallback(() => {
+    const showArchived = uiSettingsRef.current.showArchivedTasks === true;
+    const byCreated = uiSettingsRef.current.taskSortBy === 'created';
+    const list = filterHistory(history, taskFilter).filter((h) => showArchived || !h.archived);
+    return [...list].sort((a, b) => {
+      if (Boolean(b.pinned) !== Boolean(a.pinned)) return b.pinned ? 1 : -1;
+      const ka = byCreated ? (a.createdAt ?? a.modifiedAt) : a.modifiedAt;
+      const kb = byCreated ? (b.createdAt ?? b.modifiedAt) : b.modifiedAt;
+      return kb - ka;
+    });
+  }, [history, taskFilter]);
+
+  const toggleGroup = useCallback((bucket: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(bucket)) next.delete(bucket);
+      else next.add(bucket);
+      return next;
+    });
   }, []);
 
   /** 界面设置变更：写盘 + 更新内存态（立即生效，无需重启）；语言切换触发全量重渲染 */
@@ -1035,6 +1119,7 @@ function App() {
       t.mode = String(res['mode'] ?? tab.mode);
       const hit = history.find((h) => h.sessionId === sessionId);
       if (hit?.cwd) t.cwd = hit.cwd;
+      if (hit?.unread) void window.bajin.rpc('session/unread', { sessionId, unread: false }).then(() => refreshHistory()).catch(() => undefined);
       t.items = historyToItems((res['messages'] as Array<Record<string, unknown>>) ?? []);
       setTabs((prev) => [...prev, t]);
       setActive(tabs.length);
@@ -1138,22 +1223,38 @@ function App() {
         <div className="history-head">
           <div className="view-toggle">
             {TASK_VIEW_MODES.map((m) => (
-              <button key={m.id} className={taskViewMode === m.id ? 'on' : ''} onClick={() => setTaskViewMode(m.id)}>{t(m.label)}</button>
+              <button key={m.id} className={`view-tab ${taskViewMode === m.id ? 'on' : ''}`} onClick={() => setTaskViewMode(m.id)}>
+                <span className="view-tab-icon">{m.id === 'grouped' ? '#' : '🗂'}</span>
+                {t(m.label)}
+              </button>
             ))}
           </div>
+          <TaskViewOptionsMenu
+            sortBy={uiSettings.taskSortBy ?? 'updated'}
+            onSortBy={(v) => patchUiSettings({ taskSortBy: v })}
+            showArchived={uiSettings.showArchivedTasks === true}
+            onShowArchived={(v) => { patchUiSettings({ showArchivedTasks: v }); void refreshHistory(); }}
+            collapsed={collapsedGroups}
+            onCollapseAll={() => setCollapsedGroups(new Set(bucketTasks(filterHistory(history, taskFilter), taskViewMode).map(([b]) => b)))}
+            onExpandAll={() => setCollapsedGroups(new Set())}
+          />
           <span className="refresh" title={t('刷新任务列表')} onClick={() => void refreshHistory()}>⟳</span>
         </div>
         <div className="history-list">
-          {bucketTasks(filterHistory(history, taskFilter), taskViewMode).map(([bucket, items]) => (
+          {bucketTasks(visibleHistory(), taskViewMode).map(([bucket, items]) => (
             <div key={bucket}>
-              <div className="history-group">{t(bucket)}</div>
-              {items.map((h) => (
+              <div
+                className={`history-group clickable ${collapsedGroups.has(bucket) ? 'collapsed' : ''}`}
+                onClick={() => toggleGroup(bucket)}
+              >{collapsedGroups.has(bucket) ? '▸' : '▾'} {t(bucket)}</div>
+              {!collapsedGroups.has(bucket) && items.map((h) => (
                 <TaskListItem
                   key={h.sessionId}
                   item={h}
                   showProject={taskViewMode === 'projects'}
                   onOpen={() => void openHistory(h.sessionId)}
                   onChanged={() => void refreshHistory()}
+                  onGoSettings={(sec) => { setView('settings'); setSettingsSection(sec); }}
                 />
               ))}
             </div>
@@ -1163,7 +1264,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 28</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 29</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
@@ -1834,6 +1935,8 @@ interface UISettings {
   taskAutoArchiveOlderThanDays?: number;
   terminalShell?: string;
   terminalFontFamily?: string;
+  showArchivedTasks?: boolean;
+  taskSortBy?: 'updated' | 'created';
   proxy?: { httpProxy?: string; noProxy?: string; caCertPath?: string };
 }
 
