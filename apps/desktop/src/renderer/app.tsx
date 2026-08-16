@@ -502,6 +502,16 @@ function TaskListItem({ item, showProject, onOpen, onChanged }: {
           <button onClick={() => { setMenu(false); setRenaming(true); }}>重命名</button>
           <button onClick={() => void act('session/pin', { pinned: !item.pinned })}>{item.pinned ? '取消置顶' : '置顶'}</button>
           <button onClick={() => { setMenu(false); setGrouping(true); }}>{item.group ? `移动分组（当前：${item.group}）` : '移动到分组'}</button>
+          <button
+            onClick={() => {
+              setMenu(false);
+              if (confirm(`回退「${item.title || item.sessionId}」最近 1 轮对话并打开？（之后的轮次将被删除）`)) {
+                void window.bajin.rpc('session/rewind', { sessionId: item.sessionId, n: 1 })
+                  .then(() => { onChanged(); onOpen(); })
+                  .catch(() => undefined);
+              }
+            }}
+          >⏪ 回退 1 轮并打开</button>
           <div className="menu-sep" />
           <button className="danger" onClick={() => { if (confirm(`删除任务「${item.title || item.sessionId}」？不可恢复`)) void act('session/delete', {}); }}>删除</button>
         </div>
@@ -1141,7 +1151,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 26</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 27</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
@@ -1954,6 +1964,9 @@ function GeneralSection({ isMock, models, settings, onSettingsChange }: {
         </div>
       </div>
 
+      <h3>配置作用域链</h3>
+      <ConfigChainCard />
+
       <h3>运行状态</h3>
       <div className="card flat">
         <div className="settings-row"><span>模型接入</span><span>{isMock ? 'mock 模式（未配置 key）' : 'BIGMODEL / 自定义端点'}</span></div>
@@ -1967,6 +1980,42 @@ function GeneralSection({ isMock, models, settings, onSettingsChange }: {
 }
 
 /** 网络代理卡（对标 ZCode httpProxy/noProxy/caCert；保存后 agent 子进程注入 HTTPS_PROXY，重启生效） */
+/** 配置作用域链诊断卡（展示 settings 链实际发现的文件与环境覆盖层） */
+function ConfigChainCard(): ReactNode {
+  const [chain, setChain] = useState<{
+    userFile: string; userExists: boolean;
+    projectFiles: Array<{ file: string; depth: number }>;
+    envKeys: string[]; hint: string;
+  } | null>(null);
+  useEffect(() => {
+    void window.bajin.rpc<typeof chain>('config/chain').then(setChain).catch(() => setChain(null));
+  }, []);
+  if (!chain) return <div className="card flat"><div className="settings-row"><span>配置作用域链</span><span className="log-meta">读取失败</span></div></div>;
+  return (
+    <div className="card flat">
+      <div className="settings-row">
+        <span>用户级<span className="settings-desc">{chain.userFile}</span></span>
+        <span className="log-meta">{chain.userExists ? '✓ 已加载' : '未创建'}</span>
+      </div>
+      {chain.projectFiles.length > 0 ? (
+        chain.projectFiles.map((f) => (
+          <div key={f.file} className="settings-row">
+            <span>项目级<span className="settings-desc">{f.file}</span></span>
+            <span className="log-meta">{f.depth === 0 ? '本级目录' : `上 ${f.depth} 级`}</span>
+          </div>
+        ))
+      ) : (
+        <div className="settings-row"><span>项目级<span className="settings-desc">未发现 bajin.json / .bajin/config.json</span></span><span className="log-meta">—</span></div>
+      )}
+      <div className="settings-row">
+        <span>环境变量覆盖<span className="settings-desc">BAJIN_MODEL / BAJIN_MODE / BAJIN_BASE_URL / BAJIN_ALLOWED_TOOLS / BAJIN_DISALLOWED_TOOLS</span></span>
+        <span className="log-meta">{chain.envKeys.length ? chain.envKeys.join(', ') : '无'}</span>
+      </div>
+      <div className="settings-row"><span className="log-meta">{chain.hint}（命令行旗标在 CLI 中最高）</span></div>
+    </div>
+  );
+}
+
 function ProxyCard({ settings, onSettingsChange }: {
   settings: UISettings;
   onSettingsChange: (patch: Partial<UISettings>) => void;

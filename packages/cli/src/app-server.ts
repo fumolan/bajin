@@ -5,7 +5,8 @@ import { promises as fs } from 'node:fs';
 import {
   Agent, createGlmProvider, createAnthropicProvider, createMockProvider, listSessions, PermissionPolicy, discoverSkills,
   discoverCommands, findCommand, expandCommand, loadHooksConfig, discoverSubagents, readMemories, clearMemories,
-  openSessionStore, storeUpsertSession, storeAppendMessage, storeUpdateSessionMeta, storeDeleteSession, storeReplaceTodos, storeListSessions, type SessionStore,
+  openSessionStore, storeUpsertSession, storeAppendMessage, storeUpdateSessionMeta, storeDeleteSession, storeReplaceTodos, storeListSessions,
+  rewindTranscript, discoverProjectConfigFiles, envSettingsOverlay, type SessionStore,
   mergeModelOptions, readCustomModels, writeCustomModels, resolveModelEndpoint,
   readProviders, writeProviders, nextCronRun,
   type SlashCommand, type HooksConfig, type CustomModel, type ProviderEntry, type AgentCallbacks, type MockStep,
@@ -201,6 +202,10 @@ export class AppServer {
           return respond(await this.sessionMutateMeta(p as unknown as { sessionId: string }, { pinned: (v) => v === true }));
         case 'session/delete':
           return respond(await this.sessionDelete(p as unknown as { sessionId: string }));
+        case 'session/rewind':
+          return respond(await this.sessionRewind(p as unknown as { sessionId: string; n?: number }));
+        case 'config/chain':
+          return respond(await this.configChain());
         case 'logs/list':
           return respond(await this.logsList());
         case 'logs/read':
@@ -475,6 +480,55 @@ export class AppServer {
       });
     }
     return { sessionId: p.sessionId, ...Object.fromEntries(Object.keys(fields).map((k) => [k, meta[k] ?? null])) };
+  }
+
+  /** 回退最近 N 轮（默认 1）：裁 JSONL 后把 SQLite 里该会话整体重同步，保持双写一致 */
+  private async sessionRewind(p: { sessionId: string; n?: number }): Promise<Record<string, unknown>> {
+    const n = Math.max(1, Math.floor(p?.n ?? 1));
+    const transcriptPath = path.join(this.persistDir(), p.sessionId, 'transcript.jsonl');
+    const r = await rewindTranscript(transcriptPath, n);
+    const store = this.sessionStore();
+    if (store && (r.removedTurns > 0 || r.remainingTurns >= 0)) {
+      storeDeleteSession(store, p.sessionId);
+      // 重导入裁剪后的 JSONL（meta 保留 group/pinned/title）
+      const metaRaw = await fs.readFile(path.join(this.persistDir(), p.sessionId, 'meta.json'), 'utf8').catch(() => null);
+      const meta = metaRaw ? (JSON.parse(metaRaw) as Record<string, unknown>) : {};
+      storeUpsertSession(store, {
+        sessionId: p.sessionId,
+        model: String(meta['model'] ?? ''),
+        cwd: String(meta['cwd'] ?? ''),
+        createdAt: String(meta['createdAt'] ?? new Date().toISOString()),
+        title: typeof meta['title'] === 'string' ? meta['title'] : undefined,
+        group: typeof meta['group'] === 'string' ? meta['group'] : undefined,
+        pinned: meta['pinned'] === true,
+        modifiedAt: new Date().toISOString(),
+      });
+      const raw = await fs.readFile(transcriptPath, 'utf8').catch(() => '');
+      for (const line of raw.split('\n')) {
+        const t = line.trim();
+        if (!t) continue;
+        try {
+          const rec = JSON.parse(t) as { ts?: string; msg?: ChatMessage };
+          if (rec.msg?.role) storeAppendMessage(store, p.sessionId, rec.msg, rec.ts ?? '');
+        } catch { /* 损坏行跳过 */ }
+      }
+    }
+    return { sessionId: p.sessionId, ...r };
+  }
+
+  /** 配置作用域链诊断（设置页展示：用户级/项目级各文件与环境覆盖层） */
+  private async configChain(): Promise<Record<string, unknown>> {
+    const userFile = path.join(AppServer.stateHome(), 'config.json');
+    const userExists = await fs.access(userFile).then(() => true, () => false);
+    const projectFiles = await discoverProjectConfigFiles(this.cwd);
+    const env = envSettingsOverlay();
+    return {
+      userFile,
+      userExists,
+      projectFiles, // 远 → 近
+      envKeys: Object.keys(env),
+      hint: '优先级：内置默认 < 用户级 < 项目级(远→近) < 环境变量 < 命令行旗标',
+    };
   }
 
   /** 删除任务：移除持久化目录；若该会话正开着，先关掉 */
