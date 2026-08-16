@@ -104,7 +104,7 @@ const EN: Record<string, string> = {
   '按更新时间': 'Updated time', '按创建时间': 'Created time', '收起全部分组': 'Collapse all groups',
   '自定义技能': 'Custom skills', '内置技能': 'Built-in skills',
   '还没有自定义技能：点右上「＋ 新建技能」，或在 ~/.bajin/skills/<名称>/SKILL.md 手写': 'No custom skills yet: click "+ New skill", or hand-write ~/.bajin/skills/<name>/SKILL.md',
-  '没有匹配的技能': 'No matching skills', '外观': 'Appearance', '浏览器': 'Browser', '界面主题与色调': 'Interface theme & tint',
+  '返回任务': 'Back to tasks', '没有匹配的技能': 'No matching skills', '外观': 'Appearance', '浏览器': 'Browser', '界面主题与色调': 'Interface theme & tint',
   '界面': 'Interface', '浅色调 / 深色调 / 跟随系统，即时生效': 'Light / Dark / System, applied instantly',
   '跟随系统': 'System', '深色调': 'Dark', '浅色调': 'Light',
   '内嵌网页的缓存与站点数据维护': 'Cache & site data maintenance for embedded web views',
@@ -1241,8 +1241,27 @@ function App() {
 
   return (
     <div className="app">
-      {/* 侧边栏（常驻：任何页面都能切换菜单/回任务，对标 ZCode） */}
+      {/* 侧边栏（对标 ZCode：设置态下任务菜单被设置导航替换，同位置切换） */}
       <aside className="sidebar">
+        {view === 'settings' ? (
+          <div className="settings-sidebar">
+            <button className="settings-back" onClick={() => setView('chat')}>← {t('返回任务')}</button>
+            <div className="settings-sidebar-scroll">
+              {SETTINGS_NAV.map((g) => (
+                <div key={g.group} className="settings-nav-group">
+                  <div className="settings-nav-group-title">{t(g.group)}</div>
+                  {g.items.map((it) => (
+                    <div key={it.id} className={`settings-nav-item ${settingsSection === it.id ? 'on' : ''}`} onClick={() => setSettingsSection(it.id)}>
+                      <span className="side-icon">{it.icon}</span>
+                      <span>{t(it.label)}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+        <>
         <div className="task-filter">
           <input value={taskFilter} placeholder={t('搜索任务...')} onChange={(e) => setTaskFilter(e.target.value)} />
         </div>
@@ -1302,13 +1321,15 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 37</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 38</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
             onClick={() => { setView(view === 'settings' ? 'chat' : 'settings'); }}
           >⚙</button>
         </div>
+        </>
+        )}
       </aside>
 
       {view === 'chat' ? (
@@ -1920,21 +1941,7 @@ function SettingsView({ section, onSection, isMock, models, providers, refreshMo
   onOpenSession: (sid: string) => void;
 }): ReactNode {
   return (
-    <div className="settings-shell">
-      <aside className="settings-nav">
-        {SETTINGS_NAV.map((g) => (
-          <div key={g.group} className="settings-nav-group">
-            <div className="settings-nav-group-title">{t(g.group)}</div>
-            {g.items.map((it) => (
-              <div key={it.id} className={`settings-nav-item ${section === it.id ? 'on' : ''}`} onClick={() => onSection(it.id)}>
-                <span className="side-icon">{it.icon}</span>
-                <span>{t(it.label)}</span>
-              </div>
-            ))}
-          </div>
-        ))}
-      </aside>
-      <div className="settings-detail">
+    <div className="settings-detail">
         {section === 'general' && <GeneralSection isMock={isMock} models={models} settings={uiSettings} onSettingsChange={patchUiSettings} />}
         {section === 'models' && (
           <ModelProviderSection
@@ -1959,7 +1966,6 @@ function SettingsView({ section, onSection, isMock, models, providers, refreshMo
         {section === 'logs' && <LogsView />}
         {section === 'about' && <HelpView />}
       </div>
-    </div>
   );
 }
 
