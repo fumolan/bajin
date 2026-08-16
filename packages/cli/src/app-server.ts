@@ -5,7 +5,7 @@ import { promises as fs } from 'node:fs';
 import {
   Agent, createGlmProvider, createAnthropicProvider, createMockProvider, listSessions, PermissionPolicy, discoverSkills,
   discoverCommands, findCommand, expandCommand, loadHooksConfig, discoverSubagents, readMemories, clearMemories,
-  openSessionStore, storeUpsertSession, storeAppendMessage, type SessionStore,
+  openSessionStore, storeUpsertSession, storeAppendMessage, storeUpdateSessionMeta, storeDeleteSession, storeReplaceTodos, storeListSessions, type SessionStore,
   mergeModelOptions, readCustomModels, writeCustomModels, resolveModelEndpoint,
   readProviders, writeProviders, nextCronRun,
   type SlashCommand, type HooksConfig, type CustomModel, type ProviderEntry, type AgentCallbacks, type MockStep,
@@ -441,6 +441,8 @@ export class AppServer {
     if (p.group?.trim()) meta['group'] = p.group.trim();
     else delete meta['group'];
     await fs.writeFile(metaFile, `${JSON.stringify(meta, null, 2)}\n`, 'utf8');
+    const store = this.sessionStore();
+    if (store) storeUpdateSessionMeta(store, p.sessionId, { group: p.group?.trim() || null });
     return { sessionId: p.sessionId, group: meta['group'] ?? null };
   }
 
@@ -465,6 +467,13 @@ export class AppServer {
       else meta[key] = val;
     }
     await fs.writeFile(metaFile, `${JSON.stringify(meta, null, 2)}\n`, 'utf8');
+    const store = this.sessionStore();
+    if (store) {
+      storeUpdateSessionMeta(store, p.sessionId, {
+        ...(fields['title'] ? { title: (meta['title'] as string) ?? undefined } : {}),
+        ...(fields['pinned'] ? { pinned: Boolean(meta['pinned']) } : {}),
+      });
+    }
     return { sessionId: p.sessionId, ...Object.fromEntries(Object.keys(fields).map((k) => [k, meta[k] ?? null])) };
   }
 
@@ -476,6 +485,8 @@ export class AppServer {
     const open = this.sessions.get(p.sessionId);
     if (open) this.sessionClose({ sessionId: p.sessionId });
     await fs.rm(dir, { recursive: true, force: true });
+    const store = this.sessionStore();
+    if (store) storeDeleteSession(store, p.sessionId);
     return { sessionId: p.sessionId, deleted: true };
   }
 
@@ -636,7 +647,11 @@ export class AppServer {
       onToolResult: (name, result) => {
         this.emit('tool-result', { sessionId, name, ...result });
         const todos = state.agent.todoSnapshot();
-        if (todos.length) this.emit('todo-updated', { sessionId, todos });
+        if (todos.length) {
+          this.emit('todo-updated', { sessionId, todos });
+          const store = this.persist ? this.sessionStore() : null;
+          if (store) storeReplaceTodos(store, sessionId, todos);
+        }
       },
       onUsage: (usage) => this.emit('usage', { sessionId, ...usage }),
       onApproval: async (name, args) => {
@@ -998,6 +1013,14 @@ export class AppServer {
   /** 列会话并带上 meta.json 里的 group/cwd（供侧边栏分组与项目页） */
   private async listSessionsEnriched(): Promise<Array<Record<string, unknown>>> {
     const sessions = await listSessions(this.persistDir());
+    // SQLite 行覆盖层（双写过渡期 store 为元数据优先源；不可用时纯 JSONL 行为不变）
+    const store = this.persist ? this.sessionStore() : null;
+    const storeRows = new Map<string, { title: string | null; group: string | null; pinned: number | null; modifiedAt: string }>();
+    if (store) {
+      for (const row of storeListSessions(store)) {
+        storeRows.set(row.sessionId, { title: row.title, group: row.group, pinned: row.pinned, modifiedAt: row.modifiedAt });
+      }
+    }
     const out: Array<Record<string, unknown>> = [];
     for (const s of sessions) {
       let meta: Record<string, unknown> = {};
@@ -1006,14 +1029,16 @@ export class AppServer {
       } catch {
         // 无 meta
       }
+      const row = storeRows.get(s.sessionId);
+      const storeTitle = row?.title?.trim() || null;
       out.push({
         sessionId: s.sessionId,
-        // 重命名优先：meta.title > 首条用户消息
-        title: ((meta['title'] as string | undefined)?.trim()) || s.title,
+        // 标题优先级：store.title > meta.title > 首条用户消息（双写期 store 最新）
+        title: storeTitle ?? (((meta['title'] as string | undefined)?.trim()) || s.title),
         modifiedAt: s.modifiedAt,
-        group: (meta['group'] as string | undefined) ?? null,
+        group: (row?.group ?? (meta['group'] as string | undefined)) ?? null,
         cwd: (meta['cwd'] as string | undefined) ?? null,
-        pinned: meta['pinned'] === true,
+        pinned: row?.pinned != null ? row.pinned === 1 : meta['pinned'] === true,
       });
     }
     return out;

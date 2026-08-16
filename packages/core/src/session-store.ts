@@ -187,6 +187,48 @@ export function storeListSessions(store: SessionStore): StoreSessionItem[] {
     .all() as unknown as StoreSessionItem[];
 }
 
+/** 显式更新会话元数据（rename/pin/set-group RPC 用）：只更新提供的键；group 传 null 清除 */
+export function storeUpdateSessionMeta(
+  store: SessionStore,
+  sessionId: string,
+  patch: { title?: string; group?: string | null; pinned?: boolean },
+): void {
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  if (patch.title !== undefined) { sets.push('title = ?'); vals.push(patch.title); }
+  if (patch.group !== undefined) { sets.push('"group" = ?'); vals.push(patch.group); }
+  if (patch.pinned !== undefined) { sets.push('pinned = ?'); vals.push(patch.pinned ? 1 : 0); }
+  if (!sets.length) return;
+  store.db.prepare(`UPDATE session SET ${sets.join(', ')} WHERE id = ?`).run(...(vals as never[]), sessionId);
+}
+
+/** 删除会话（消息/part/todo/usage 级联） */
+export function storeDeleteSession(store: SessionStore, sessionId: string): void {
+  store.db.exec('PRAGMA foreign_keys = ON');
+  store.db.prepare('DELETE FROM session WHERE id = ?').run(sessionId);
+}
+
+/** todo 快照整表替换（live 写入：TodoWrite/事件侧每次快照全量覆盖） */
+export function storeReplaceTodos(store: SessionStore, sessionId: string, todos: unknown[]): void {
+  const tx = store.db.prepare('BEGIN');
+  try {
+    tx.run();
+    store.db.prepare('DELETE FROM todo WHERE session_id = ?').run(sessionId);
+    const ins = store.db.prepare('INSERT INTO todo (session_id, content, created_at) VALUES (?, ?, ?)');
+    const now = new Date().toISOString();
+    for (const t of todos) ins.run(sessionId, JSON.stringify(t), now);
+    store.db.prepare('COMMIT').run();
+  } catch {
+    store.db.prepare('ROLLBACK').run();
+  }
+}
+
+/** 读会话 todo 快照（最近一次全量） */
+export function storeLoadTodos(store: SessionStore, sessionId: string): unknown[] {
+  const rows = store.db.prepare('SELECT content FROM todo WHERE session_id = ? ORDER BY id').all(sessionId) as Array<{ content: string }>;
+  return rows.map((r) => JSON.parse(r.content) as unknown);
+}
+
 /**
  * 迁移存量 JSONL 会话目录到 SQLite：遍历 <persistDir>/<sessionId>/transcript.jsonl，
  * 会话行取 meta.json（缺失时以目录名兜底），消息逐行入库（含压缩标记，保持回放语义）。
