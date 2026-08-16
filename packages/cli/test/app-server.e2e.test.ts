@@ -178,6 +178,28 @@ describe('bajin app-server（多会话）', () => {
     expect(toolMsg.params!['output']).toContain('A 方案');
   });
 
+  it('ask-user multiSelect：事件带 multiSelect，多选拼接回传注入工具结果', async () => {
+    const s = startServer();
+    const sid = await init(s, {
+      mode: 'yolo',
+      steps: [
+        { toolCalls: [{ name: 'AskUserQuestion', args: { question: '要启用哪些检查?', multiSelect: true, options: [{ label: 'lint' }, { label: 'test' }, { label: 'build' }] } }] },
+        { text: '检查项已记录。' },
+      ],
+    });
+    const sendPromise = s.request('send', { sessionId: sid, text: '问多选' });
+    const ask = await s.waitForEventIn(sid, 'ask-user');
+    const q = ask.params!['question'] as { multiSelect?: boolean };
+    expect(q.multiSelect).toBe(true);
+    const requestId = ask.params!['requestId'] as string;
+    const ack = await s.request('ask-user:respond', { requestId, answer: { answer: 'lint、test' } });
+    expect(ack.result!['resolved']).toBe(true);
+    const done = await sendPromise;
+    expect(done.result!['text']).toBe('检查项已记录。');
+    const toolMsg = await s.waitForEventIn(sid, 'tool-result');
+    expect(toolMsg.params!['output']).toContain('lint、test');
+  });
+
   it('审批 + always allow：加入白名单后同类调用不再询问', async () => {
     const s = startServer();
     const sid = await init(s, {

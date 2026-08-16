@@ -20,7 +20,7 @@ interface Tab {
   items: Item[];
   busy: boolean;
   approval: { requestId: string; name: string; summary: string; plan?: string } | null;
-  ask: { requestId: string; question: string; options?: Array<{ label: string; description?: string }>; header?: string } | null;
+  ask: { requestId: string; question: string; options?: Array<{ label: string; description?: string }>; header?: string; multiSelect?: boolean } | null;
   todos: TodoItem[];
   tokens: number;
   model: string;
@@ -993,7 +993,7 @@ function App() {
             ...t,
             ask: {
               requestId: String(p['requestId']),
-              ...(p['question'] as { question: string; options?: Array<{ label: string; description?: string }>; header?: string }),
+              ...(p['question'] as { question: string; options?: Array<{ label: string; description?: string }>; header?: string; multiSelect?: boolean }),
             },
           }));
           break;
@@ -1365,7 +1365,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 42</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 43</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
@@ -1474,14 +1474,20 @@ function App() {
           {/* 用户提问卡片 */}
           {tab.ask && (
             <div className="card ask-card">
-              <div className="card-title">❓ {tab.ask.header ? `[${tab.ask.header}] ` : ''}{tab.ask.question}</div>
-              {tab.ask.options?.map((o, i) => (
-                <button key={i} className="ask-option" onClick={() => void respondAsk(o.label)}>
-                  {o.label}
-                  {o.description ? <span className="ask-desc"> — {o.description}</span> : null}
-                </button>
-              ))}
-              <AskInput onSubmit={(v) => void respondAsk(v)} placeholder="或输入其他回答…" />
+              <div className="card-title">❓ {tab.ask.header ? `[${tab.ask.header}] ` : ''}{tab.ask.question}{tab.ask.multiSelect ? `（可多选）` : ''}</div>
+              {tab.ask.multiSelect ? (
+                <AskMultiCard options={tab.ask.options ?? []} onSubmit={(v) => void respondAsk(v)} />
+              ) : (
+                <>
+                  {tab.ask.options?.map((o, i) => (
+                    <button key={i} className="ask-option" onClick={() => void respondAsk(o.label)}>
+                      {o.label}
+                      {o.description ? <span className="ask-desc"> — {o.description}</span> : null}
+                    </button>
+                  ))}
+                  <AskInput onSubmit={(v) => void respondAsk(v)} placeholder="或输入其他回答…" />
+                </>
+              )}
             </div>
           )}
 
@@ -3464,6 +3470,38 @@ function KnowledgeView(): ReactNode {
         <div className="settings-row"><span>状态</span><span>排期中（见 bajin/GAP-TRACKER.md P1）</span></div>
         <div className="settings-row"><span>规划</span><span>为项目目录构建可检索的知识索引（AST 符号 + 文档摘要），agent 用子代理检索而非全库 grep；回答带出处 file:line</span></div>
         <div className="settings-row"><span>当前替代</span><span>agent 已可用 Explore 子代理 + Glob/Grep 做项目调研</span></div>
+      </div>
+    </div>
+  );
+}
+
+/** 多选提问卡（对标 ZCode multiSelect）：复选 + 确认，答案以「、」拼接 */
+function AskMultiCard({ options, onSubmit }: {
+  options: Array<{ label: string; description?: string }>;
+  onSubmit: (answer: string) => void;
+}): ReactNode {
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  function toggle(i: number): void {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }
+  return (
+    <div className="ask-multi">
+      {options.map((o, i) => (
+        <button key={i} className={`ask-option multi ${picked.has(i) ? 'picked' : ''}`} onClick={() => toggle(i)}>
+          <span className="ask-check">{picked.has(i) ? '☑' : '☐'}</span>
+          {o.label}
+          {o.description ? <span className="ask-desc"> — {o.description}</span> : null}
+        </button>
+      ))}
+      <div className="card-actions">
+        <button className="primary" disabled={picked.size === 0} onClick={() => onSubmit([...picked].sort((a, b) => a - b).map((i) => options[i]!.label).join('、'))}>
+          确认{picked.size > 0 ? `（已选 ${picked.size} 项）` : ''}
+        </button>
       </div>
     </div>
   );
