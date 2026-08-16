@@ -84,6 +84,13 @@ const MODE_LABELS: Record<string, string> = {
   edit: '接受编辑',
   yolo: '完全访问',
 };
+/** 模式说明（下拉菜单副标题，对标 ZCode mode 描述） */
+const MODE_DESC: Record<string, string> = {
+  plan: '只读调研并产出实施计划，不改动文件',
+  build: '文件编辑与命令执行需逐项批准',
+  edit: '文件编辑自动通过，命令仍需批准',
+  yolo: '所有工具免审批直接执行，谨慎使用',
+};
 
 /** 侧边栏菜单（对标 ZCode：新建任务/搜索/自动化/技能/知识图谱 + 任务视图切换 + 底部设置） */
 /* ---------- i18n（对标 ZCode settings.locale：中文默认，英文覆盖主界面，逐步补全） ---------- */
@@ -104,6 +111,10 @@ const EN: Record<string, string> = {
   '按更新时间': 'Updated time', '按创建时间': 'Created time', '收起全部分组': 'Collapse all groups',
   '自定义技能': 'Custom skills', '内置技能': 'Built-in skills',
   '还没有自定义技能：点右上「＋ 新建技能」，或在 ~/.bajin/skills/<名称>/SKILL.md 手写': 'No custom skills yet: click "+ New skill", or hand-write ~/.bajin/skills/<name>/SKILL.md',
+  '只读调研并产出实施计划，不改动文件': 'Read-only research and plan; no file changes',
+  '文件编辑与命令执行需逐项批准': 'Edits and commands need per-item approval',
+  '文件编辑自动通过，命令仍需批准': 'Edits auto-approved; commands still need approval',
+  '所有工具免审批直接执行，谨慎使用': 'All tools run without approval; use with care',
   '返回任务': 'Back to tasks', '没有匹配的技能': 'No matching skills', '外观': 'Appearance', '浏览器': 'Browser', '界面主题与色调': 'Interface theme & tint',
   '界面': 'Interface', '浅色调 / 深色调 / 跟随系统，即时生效': 'Light / Dark / System, applied instantly',
   '跟随系统': 'System', '深色调': 'Dark', '浅色调': 'Light',
@@ -309,6 +320,40 @@ function greetingForHour(): string {
   return '夜深啦，别忘了照顾好自己哦';
 }
 
+/** 模式菜单（对标 ZCode：任意时刻可切，名称+说明+当前项勾选；向上弹出） */
+function ModeMenu({ mode, onPick }: { mode: string; onPick: (m: string) => void }): ReactNode {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  function toggle(): void {
+    if (!open && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setPos({ top: Math.max(8, r.top - 4 - 190), left: Math.min(r.left, window.innerWidth - 268) });
+    }
+    setOpen((v) => !v);
+  }
+  return (
+    <div className="mode-menu-wrap">
+      <button ref={btnRef} className={`mode-trigger ${open ? 'on' : ''}`} onClick={toggle} title={t('切换模式')}>
+        {MODE_LABELS[mode] ?? mode} <span className="chevron">▾</span>
+      </button>
+      {open && createPortal(
+        <div className="ws-backdrop" onClick={() => setOpen(false)}>
+          <div className="mode-menu" style={{ position: 'fixed', top: pos.top, left: pos.left }} onClick={(e) => e.stopPropagation()}>
+            {MODES.map((m) => (
+              <button key={m} className={`mode-item ${mode === m ? 'on' : ''}`} onClick={() => { setOpen(false); onPick(m); }}>
+                <span className="mode-item-name">{mode === m ? '✓ ' : ''}{t(MODE_LABELS[m] ?? m)}</span>
+                <span className="mode-item-desc">{t(MODE_DESC[m] ?? '')}</span>
+              </button>
+            ))}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
 /** 统一输入框（欢迎页与会话页共用，对标 ZCode chat-composer-input-surface：rounded-2xl 单卡片） */
 function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPickWorkspace, mode, onModeChange, model, onModelClick, placeholder, centered }: {
   input: string;
@@ -345,9 +390,7 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
           onKeyDown={handleKeyDown}
         />
         <div className="composer-bar">
-          <select className="mode-select" value={mode} onChange={(e) => onModeChange(e.target.value)} disabled={busy} title={t('切换模式')}>
-            {MODES.map((m) => (<option key={m} value={m}>{MODE_LABELS[m]}</option>))}
-          </select>
+          <ModeMenu mode={mode} onPick={onModeChange} />
           <button className="model-switch-btn" disabled={busy} onClick={onModelClick} title={t('选择模型')}>
             {model} <span className="chevron">▾</span>
           </button>
@@ -1322,7 +1365,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 39</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 40</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"

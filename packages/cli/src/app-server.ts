@@ -895,13 +895,14 @@ export class AppServer {
   }
 
   private async setMode(p: WithSession & { mode: PermissionMode }): Promise<Record<string, unknown>> {
-    return this.withSessionAsync(p as unknown as Record<string, unknown>, (s) => {
-      const modes = ['plan', 'build', 'edit', 'yolo'];
-      if (!modes.includes(p.mode)) throw new Error(`mode 必须是 ${modes.join('|')}`);
-      s.mode = p.mode;
-      s.agent.setMode(p.mode);
-      return { mode: s.mode };
-    });
+    // 模式切换不设 busy 门槛（对标 ZCode 随时可切）：agent.setMode 运行中即时生效（下一轮工具审批按新模式）
+    const s = this.sessions.get(p.sessionId);
+    if (!s) throw new Error(`会话不存在: ${p.sessionId}`);
+    const modes = ['plan', 'build', 'edit', 'yolo'];
+    if (!modes.includes(p.mode)) throw new Error(`mode 必须是 ${modes.join('|')}`);
+    s.mode = p.mode;
+    s.agent.setMode(p.mode);
+    return { mode: s.mode };
   }
 
   private async setModel(p: WithSession & { model: string }): Promise<Record<string, unknown>> {

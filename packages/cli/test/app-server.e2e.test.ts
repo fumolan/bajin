@@ -501,3 +501,24 @@ describe('bajin app-server（多会话）', () => {
     fsMod.rmSync(pathMod.join(osMod.homedir(), '.bajin', 'sessions', sid), { recursive: true, force: true });
   });
 });
+
+describe('模式切换：任务运行中也可切换（对标 ZCode 随时可切）', () => {
+  it('send 执行长工具期间 set-mode 成功且生效（不抛 BusyError）', { timeout: 30_000 }, async () => {
+    const s = startServer();
+    const sid = await init(s, {
+      mode: 'yolo',
+      steps: [
+        { toolCalls: [{ name: 'Bash', args: { command: 'sleep 2 && echo done' } }] },
+        { text: 'finished' },
+      ],
+    });
+    const sendP = s.request('send', { sessionId: sid, text: '跑后台' }).catch((e: unknown) => e);
+    await new Promise((r) => setTimeout(r, 400)); // 进入工具执行中
+    const switched = await s.request('set-mode', { sessionId: sid, mode: 'yolo' });
+    expect((switched.result! as { mode: string }).mode).toBe('yolo');
+    const st = await s.request('status', { sessionId: sid });
+    expect((st.result! as { mode: string }).mode).toBe('yolo');
+    const done = (await sendP) as { result?: { text?: string } };
+    expect(done.result?.['text']).toContain('finished');
+  });
+});
