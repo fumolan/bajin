@@ -44,7 +44,14 @@ pnpm desktop:dist     # electron-builder 打包当前平台
 ## 内置工具
 
 `Read` `Write` `Edit` `Bash` `Glob` `Grep` `TodoWrite` `AskUserQuestion`
-＋ `EnterPlanMode` `ExitPlanMode`（计划模式工作流）＋ `Skill`（技能加载）＋ `Agent`（子代理，Explore/general-purpose 双 profile）
+＋ `EnterPlanMode` `ExitPlanMode`（计划模式）＋ `Skill`（技能加载）＋ `Agent`（子代理）
+＋ `WebSearch` `WebFetch`（DuckDuckGo 搜索 + HTML→文本）
+＋ `Bash run_in_background` + `TaskOutput` `TaskStop`（后台任务）
+＋ `CronCreate` `CronUpdate` `CronDelete` `CronList`（定时任务）
+＋ `EnterWorktree` `ExitWorktree`（git 隔离实验）
+＋ `BrowserNavigate` `BrowserContent`（浏览器面板控制）
+＋ `Diagnostics`（TypeScript 类型检查）
+＋ `Memory`（长期记忆读写）
 
 ## Agent 内核特性（对标 ZCode 的精髓）
 
@@ -57,6 +64,15 @@ pnpm desktop:dist     # electron-builder 打包当前平台
 - **rollout 模型 IO 日志**：`~/.bajin/rollout/model-io-<sess>.jsonl` 记录每次请求/响应（请求复盘调试）
 - **上下文压缩**：`/compact` 手动或超限自动触发（摘要 + 保留最近两轮），压缩标记写入 transcript
 - **跨平台 Bash**：Linux/macOS 走 bash -c，Windows 走 cmd /c（BAJIN_SHELL 可覆盖）
+- **SQLite 会话库**：node:sqlite 五表（session/message/part/todo/tool_usage），JSONL 双写过渡 + 容灾恢复
+- **Hooks 系统**：7 事件（SessionStart/UserPromptSubmit/Pre/PostToolUse/PermissionRequest/Stop），matcher 正则 + 退出码协议 + JSON 决策
+- **自定义 slash 命令**：frontmatter（description/model/allowed-tools/skills）三效生效
+- **MCP**：stdio + sse 双传输，工具命名 mcp__server__tool
+- **插件系统**：~/.bajin/plugins/ 目录，技能/命令自动发现，启停控制
+- **`.agents/` 双前缀**：skills/commands/subagents 项目级同时扫 .bajin/ 与 .agents/
+- **settings 作用域链**：System < User < Project(到 .git 根) < Env < Cli
+- **多 provider**：GLM(openai) + Anthropic(Messages) + 自定义端点 + 供应商目录
+- **精确 token 计数**：CJK/ASCII 分类估算 + 15 模型定价表 + 成本估算
 
 ## 权限模式
 
