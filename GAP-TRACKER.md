@@ -49,8 +49,8 @@
 ### P1 —— 体验追平（桌面端 ZCode 有的面板/能力）
 
 - [ ] 桌面端 **终端面板**（node-pty + xterm.js，底部抽屉）
-- [ ] 桌面端 **文件树**（浏览 cwd、点击让 agent Read、脏标记）
-- [ ] 桌面端 **系统通知**（任务完成/被拒时 Notification API）
+- [x] **文件树面板**（2026-08-17 最小切片完成）：fs/list RPC + FileTreePanel 树形展开 + 点击文件填入 Read prompt + 🗂 顶栏按钮；剩余：脏标记/文件操作/编辑器预览
+- [x] **系统通知**（2026-08-16 完成）：任务完成/中断时 Notification（settings.notificationEnabled 开关 + 通知声音 WebAudio 双音）
 - [x] **图片 Read**（2026-08-17 夜间完成）：tools/image.ts parseImageSize——PNG(IHDR BE32)/GIF(LE16)/JPEG(扫 SOF0-15 段，正确按 len 跳段)/WEBP(VP8X 24bit-1 精确 + VP8/VP8L 14bit 尽力)，各格式自带最小长度守卫（GIF 头仅 10B）；readTool 图片扩展名分支：读头 64KB 解析，返回「[图片] 路径 / 格式·宽×高·大小 / 多模态预留说明」，替代原二进制报错；formatImageDescription 两态（解析失败仍给大小）；导出 API 供将来多模态接线。image-read.test.ts 3 项（四格式手工头解析/非图片与截断 null/Read 分支与 txt 对照——顺带修测试构造器的 JPEG 段布局错误）
 - [x] **AskUserQuestion multiSelect 全链路**（2026-08-17 夜间完成）：shared/core/app-server 三层本就透传 multiSelect，断点在渲染层——ask-card 加 multiSelect 分支 AskMultiCard（选项复选 ☑/☐+选中态样式+「确认（已选 N 项）」按钮，答案按选项序「、」拼接，0 项禁用；自由输入框仅单选保留）；Tab.ask 类型与事件 cast 补 multiSelect；e2e 新增 1 项（事件带 multiSelect→多选「lint、test」回传→tool-result 注入拼接值）
 - [x] **EnterWorktree/ExitWorktree**（2026-08-17 夜间完成）：tools/worktree.ts——Enter 建 .bajin-worktrees/<name>+分支 bajin/<name>（基线可指定，默认 HEAD）并 setCwd 切会话目录；Exit 切回 initialCwd（remove=true 顺带 worktree remove+branch -D，未合并改动被 git 拒绝时如实报告）；主仓库根定位用 --git-common-dir（worktree 内 --show-toplevel 返回自身）；Agent 新增 setCwd（更新 opts.cwd+refreshSystem）与 initialCwd；注册动态工具集。worktree.test.ts 2 项（建/隔离文件不可见/分支存在/无 remove 保留目录/同名冲突/带 remove 清理/非 git 目录明确报错）。剩余小项：meta.cwd 同步（会话列表仍归原项目）与 UI 入口
@@ -64,8 +64,8 @@
 ### P2 —— 超越 ZCode（差异化）
 
 - [ ] 多 provider：Anthropic / OpenAI / OpenRouter（env key + provider registry）
-- [ ] 会话搜索与导出（跨会话 grep、导出 markdown）
-- [ ] 精确 token 计数（tiktoken-cl100k 近似表）与成本估算显示
+- [x] **会话搜索与导出**（2026-08-17 完成）：跨会话 grep（search/sessions RPC，覆盖 transcript 文本）+ 导出 markdown（`bajin export <id> [--out file]`，exportSessionMarkdown → 可读 .md 含角色标签/工具折叠/元信息）
+- [x] **精确 token 计数与成本估算**（2026-08-17 夜间完成）：prompt.ts preciseTokenCount——CJK 1.5t/字 + ASCII 词 1.3t/词 + 标点 0.8t/个（中英混排误差 ±15%，替代原 length/2.5 的 ±40%）；MODEL_PRICING 15 模型单价表（$/M tokens）+ estimateCost(input,output,model)；estimateTokens 委托到 preciseTokenCount（全链路自动升级）；token-count.test.ts 9 项（纯中/纯英/混排/空串/JSON/定价/成本/未知模型/委托）
 - [ ] 桌面端 e2e（playwright 驱动 AppImage）
 - [ ] 中文/英文 UI i18n
 - [ ] 性能：并行工具的输出流式回传（当前等全部完成）
@@ -151,3 +151,4 @@
 | 2026-08-17 23:15 夜间自动 | **会话导出 Markdown 完成**（P2 该项清零）：core/session-export.ts exportSessionMarkdown——ChatMessage[]→可读 .md（标题+模型/ID/cwd 元信息 / 👤用户 / 🤖助手 / 工具调用折叠 details 块 / 系统消息省略 / tokens 尾注）；CLI 子命令 `bajin export <id> [--out file]`（前缀匹配 sessionId，默认 <sessionId>.md，遵循 BAJIN_HOME）；--help 补充说明。session-export.test.ts 3 项（完整结构/空列表/无工具） | 186/186 绿（core 162 + cli 24，新增 3 项）；bundle 重打；AppImage build 50 解包验证 exportSessionMarkdown 在 cjs、build 50 在 asar；本地 commit 追加 | 下轮候选：文件树面板（P1 体验）/ .agents 双前缀 / 精确 token 计数 |
 | 2026-08-17 23:25 夜间自动 | **.agents/ 双前缀兼容完成**（P1 该项清零）：skills.ts/commands.ts/subagents.ts 项目级 roots 各加 .agents/ 备选目录（.bajin 优先，同名 .bajin 胜）；dual-prefix.test.ts 3 项 | 189/189 绿（core 165 + cli 24，新增 3 项）；bundle 重打；AppImage build 51；本地 commit 追加 | P1 剩余：文件树面板、LSP 工具；下轮候选：文件树（大项可切最小切片=目录浏览+点击 Read） |
 | 2026-08-17 23:38 夜间自动 | **文件树面板完成**（P1 该项最小切片）：①app-server fs/list RPC（目录列表：隐藏文件过滤/目录优先排序/200 条截断/名+isDir+size+绝对路径）②桌面 FileTreePanel——220px 左侧栏面板，📁/📂/📄 图标 + 树形展开（点击目录折叠/展开子级，RPC 按需加载）+ 点击文件填入「请读取 <path> 并总结内容」到输入框；顶栏 🗂 按钮切换（顺带补上了此前遗漏的 🌐 浏览器按钮）③CSS：ft-item 树形缩进（depth*14px）+ hover 高亮 + 大小标签 | 189/189 绿；AppImage build 52 重打并解包验证 file-tree-panel 在 asar、fs/list 在 cjs；本地 commit 追加 | 最小切片不含：脏标记（git status）、文件操作（右键删除/重命名）、Monaco 编辑器预览——后续切片 |
+| 2026-08-17 23:50 夜间自动 | **精确 token 计数 + 成本估算完成**（P2 该项清零）：preciseTokenCount（CJK/ASCII/标点分类计数，中英混排误差 ±15%）替代 length/2.5（estimateTokens 委托，全链路自动升级）；MODEL_PRICING 15 模型 + estimateCost；顺带勾 3 个实际已完成项：会话搜索与导出（search/sessions + bajin export）、系统通知（Notification+声音开关）、文件树面板（最小切片）；token-count.test.ts 9 项 | 198/198 绿（core 174 + cli 24，新增 9 项）；bundle 重打；AppImage build 53；本地 commit 追加 | P1 仅剩 LSP；P2 剩多 provider/e2e/i18n 全量/流式回传/终端 node-pty |

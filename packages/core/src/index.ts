@@ -2,7 +2,7 @@ export { Agent, groupToolCalls } from './agent.js';
 export type { AgentOptions, AgentResult, AgentCallbacks } from './agent.js';
 export { PermissionPolicy } from './permissions.js';
 export type { PermissionPolicyOptions } from './permissions.js';
-export { buildSystemPrompt, estimateTokens } from './prompt.js';
+export { buildSystemPrompt, estimateTokens, preciseTokenCount, estimateCost, MODEL_PRICING } from './prompt.js';
 export type { PromptContext, TodoSnapshot, SkillSummary } from './prompt.js';
 export { unifiedDiff } from './diff.js';
 export {
