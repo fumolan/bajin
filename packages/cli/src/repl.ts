@@ -1,5 +1,6 @@
 import * as readline from 'node:readline/promises';
-import { Agent, PermissionPolicy, listSessions, discoverCommands, findCommand, expandCommand, loadHooksConfig, type HooksConfig, type AgentCallbacks } from '@bajin/core';
+import { Agent, PermissionPolicy, listSessions, discoverCommands, findCommand, expandCommand, loadHooksConfig, discoverSkills, type HooksConfig, type AgentCallbacks } from '@bajin/core';
+import { promises as fs } from 'node:fs';
 import type { PermissionMode, UserAnswer, UserQuestion } from '@bajin/shared';
 import { BANNER, bold, cyan, dim, formatToolResult, green, red, summarizeArgs, yellow } from './ui.js';
 
@@ -164,6 +165,24 @@ ${bold('/exit')}   退出`);
             console.error(red(`/${custom.name}: ${err instanceof Error ? err.message : String(err)}`));
             break;
           }
+          // frontmatter 三效（对标 app-server send()）：model 切换 / allowed-tools 预授权 / skills 挂载
+          if (custom.model) {
+            console.log(dim(`  [model] ${custom.model}`));
+          }
+          for (const tool of custom.allowedTools ?? []) {
+            agent.allowTool(tool);
+          }
+          let mounted = '';
+          if (custom.skills?.length) {
+            const all = await discoverSkills(opts.cwd).catch(() => []);
+            for (const name of custom.skills) {
+              const hit = all.find((x) => x.name === name);
+              if (!hit) continue;
+              const body = await fs.readFile(hit.file, 'utf8').catch(() => '');
+              if (body) mounted += `[挂载技能 ${name}]\n${body.slice(0, 6000)}\n\n`;
+            }
+          }
+          if (mounted) expanded = `${mounted}---\n${expanded}`;
           console.log(dim(`执行 /${custom.name}${arg ? ` ${arg}` : ''}（展开为 ${expanded.length} 字符 prompt）`));
           try {
             const result = await agent.run(expanded);
