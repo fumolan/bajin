@@ -107,7 +107,7 @@ const EN: Record<string, string> = {
   '在分屏打开': 'Open in split pane', '在文件管理器中打开': 'Reveal in file manager',
   '复制路径': 'Copy path', '复制任务路径': 'Copy task path', '复制日志路径': 'Copy log path',
   '复制会话 ID': 'Copy session ID', '前往配置': 'Open settings', '查看调用轨迹': 'View trajectory',
-  '反馈问题': 'Feedback', '任务视图选项': 'Task view options', '排序': 'Sort by',
+  '删除任务': 'Delete task', '反馈问题': 'Feedback', '任务视图选项': 'Task view options', '排序': 'Sort by',
   '按更新时间': 'Updated time', '按创建时间': 'Created time', '收起全部分组': 'Collapse all groups',
   '自定义技能': 'Custom skills', '内置技能': 'Built-in skills',
   '还没有自定义技能：点右上「＋ 新建技能」，或在 ~/.bajin/skills/<名称>/SKILL.md 手写': 'No custom skills yet: click "+ New skill", or hand-write ~/.bajin/skills/<name>/SKILL.md',
@@ -656,6 +656,11 @@ function TaskListItem({ item, showProject, onOpen, onChanged, onGoSettings }: {
           <button onClick={() => { setMenu(false); onGoSettings('models'); }}>{t('前往配置')}</button>
           <button onClick={() => { setMenu(false); onGoSettings('logs'); }}>{t('查看调用轨迹')}</button>
           <button onClick={() => { setMenu(false); void window.bajin.openExternal('https://github.com/'); }}>{t('反馈问题')}</button>
+          <div className="menu-sep" />
+          <button className="danger" onClick={() => {
+            setMenu(false);
+            if (confirm(`删除任务「${item.title || item.sessionId}」？不可恢复`)) void act('session/delete', {});
+          }}>{t('删除任务')}</button>
         </div>
       )}
     </div>
@@ -1369,7 +1374,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 45</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 46</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
