@@ -30,7 +30,7 @@ export interface SlashCommand {
   body: string;
   /** .md 绝对路径 */
   file: string;
-  source: 'user' | 'project';
+  source: 'user' | 'project' | 'plugin';
 }
 
 const NAME_RE = /^[a-z0-9][a-z0-9_:-]{0,63}$/;
@@ -64,10 +64,15 @@ export async function discoverCommands(cwd: string, home?: string): Promise<Slas
 }
 
 /** 命令根目录列表（高 → 低）：用户级在前；工作区从 cwd 向上到 git 根每级收集 */
-async function commandRoots(cwd: string, home?: string): Promise<Array<{ dir: string; source: 'user' | 'project' }>> {
-  const roots: Array<{ dir: string; source: 'user' | 'project' }> = [
+async function commandRoots(cwd: string, home?: string): Promise<Array<{ dir: string; source: 'user' | 'project' | 'plugin' }>> {
+  const roots: Array<{ dir: string; source: 'user' | 'project' | 'plugin' }> = [
     { dir: path.join(stateHome(home), 'commands'), source: 'user' },
   ];
+  // 插件命令（enabled 的插件追加在最后，优先级最低）
+  try {
+    const { pluginCommandDirs } = await import('./plugins.js');
+    for (const pd of await pluginCommandDirs(home)) roots.push({ dir: pd.dir, source: 'plugin' as const });
+  } catch { /* plugins 模块不可用时跳过 */ }
   let dir = path.resolve(cwd);
   for (;;) {
     roots.push({ dir: path.join(dir, '.bajin', 'commands'), source: 'project' });
@@ -109,13 +114,13 @@ async function listMarkdown(root: string): Promise<string[]> {
 }
 
 /** 解析单个命令文件；description 与正文全空 → 返回 null（命令被丢弃） */
-export async function parseCommandFile(file: string, name: string, source: 'user' | 'project'): Promise<SlashCommand | null> {
+export async function parseCommandFile(file: string, name: string, source: 'user' | 'project' | 'plugin'): Promise<SlashCommand | null> {
   const raw = await fs.readFile(file, 'utf8');
   return parseCommandRaw(raw, name, source, file);
 }
 
 /** 从原文解析（便于测试）：frontmatter + 正文 */
-export function parseCommandRaw(raw: string, name: string, source: 'user' | 'project', file = ''): SlashCommand | null {
+export function parseCommandRaw(raw: string, name: string, source: 'user' | 'project' | 'plugin', file = ''): SlashCommand | null {
   let fm: Record<string, string> = {};
   let body = raw;
   if (raw.startsWith('---')) {

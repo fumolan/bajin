@@ -5,6 +5,7 @@ import { promises as fs } from 'node:fs';
 import {
   Agent, createGlmProvider, createAnthropicProvider, createMockProvider, listSessions, PermissionPolicy, discoverSkills,
   discoverCommands, findCommand, expandCommand, loadHooksConfig, discoverSubagents, readMemories, clearMemories, seedBuiltinSkills,
+  discoverPlugins, togglePlugin, installPlugin,
   openSessionStore, storeUpsertSession, storeAppendMessage, storeUpdateSessionMeta, storeDeleteSession, storeReplaceTodos, storeListSessions,
   rewindTranscript, discoverProjectConfigFiles, envSettingsOverlay, storeLoadTranscript, type SessionStore,
   mergeModelOptions, readCustomModels, writeCustomModels, resolveModelEndpoint,
@@ -215,6 +216,12 @@ export class AppServer {
           return respond(await this.sessionRewind(p as unknown as { sessionId: string; n?: number }));
         case 'config/chain':
           return respond(await this.configChain());
+        case 'plugins/list':
+          return respond({ plugins: await discoverPlugins().catch(() => []) });
+        case 'plugins/toggle':
+          return respond(await this.pluginToggle(p as unknown as { name: string; enabled: boolean }));
+        case 'plugins/install':
+          return respond(await this.pluginInstall(p as unknown as { sourceDir: string; name: string }));
         case 'logs/list':
           return respond(await this.logsList());
         case 'logs/read':
@@ -568,6 +575,20 @@ export class AppServer {
       envKeys: Object.keys(env),
       hint: '优先级：内置默认 < 用户级 < 项目级(远→近) < 环境变量 < 命令行旗标',
     };
+  }
+
+  /** 插件启停（写回 plugin.json） */
+  private async pluginToggle(p: { name: string; enabled: boolean }): Promise<Record<string, unknown>> {
+    const r = await togglePlugin(p.name, p.enabled);
+    if (!r) throw new Error(`插件不存在: ${p.name}`);
+    return { plugin: r };
+  }
+
+  /** 从本地目录安装插件 */
+  private async pluginInstall(p: { sourceDir: string; name: string }): Promise<Record<string, unknown>> {
+    if (!p.sourceDir?.startsWith('/') || !p.name?.trim()) throw new Error('需要 sourceDir（绝对路径）与 name');
+    const r = await installPlugin(p.sourceDir, p.name.trim());
+    return { plugin: r };
   }
 
   /** 删除任务：移除持久化目录；若该会话正开着，先关掉 */

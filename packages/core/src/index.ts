@@ -17,6 +17,8 @@ export type { Automation } from './automations.js';
 export { discoverSkills, parseFrontmatter, BUILTIN_SKILLS, seedBuiltinSkills } from './skills.js';
 export type { DiscoveredSkill } from './skills.js';
 export { discoverSubagents } from './subagents.js';
+export { discoverPlugins, togglePlugin, installPlugin, pluginsRoot, pluginSkillDirs, pluginCommandDirs } from './plugins.js';
+export type { PluginManifest, DiscoveredPlugin } from './plugins.js';
 export type { SubagentDef } from './subagents.js';
 export { readMemories, saveMemory, clearMemories, memoryPromptBlock, createMemoryTool, memoryFilePath } from './memory.js';
 export type { MemoryEntry } from './memory.js';
@@ -44,6 +46,8 @@ export { createWebFetchTool, createWebSearchTool, htmlToText, parseDuckResults, 
 export { createCronCreateTool, createCronUpdateTool, createCronDeleteTool, createCronListTool } from './tools/cron.js';
 export { createTaskOutputTool, createTaskStopTool } from './tools/tasks.js';
 export { createEnterWorktreeTool, createExitWorktreeTool } from './tools/worktree.js';
+export { createBrowserNavigateTool, createBrowserContentTool, setBrowserBridge, getBrowserBridge } from './tools/browser.js';
+export type { BrowserBridge } from './tools/browser.js';
 export { backgroundTasks, describeTask } from './background.js';
 export type { BackgroundTask } from './background.js';
 export type { FetchLike, WebConfig } from './tools/index.js';

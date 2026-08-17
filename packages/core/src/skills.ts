@@ -12,15 +12,20 @@ export interface DiscoveredSkill extends SkillSummary {
   file: string;
   /** 所在技能目录（可能带 references/ scripts/） */
   dir: string;
-  source: 'project' | 'user';
+  source: 'project' | 'user' | 'plugin';
 }
 
-/** 发现顺序（高 → 低）：项目 .bajin/skills → 用户 ~/.bajin/skills；同名先到先得 */
+/** 发现顺序（高 → 低）：项目 .bajin/skills → 用户 ~/.bajin/skills → 插件 skills；同名先到先得 */
 export async function discoverSkills(cwd: string, home?: string): Promise<DiscoveredSkill[]> {
-  const roots: Array<{ dir: string; source: 'project' | 'user' }> = [
+  const roots: Array<{ dir: string; source: 'project' | 'user' | 'plugin' }> = [
     { dir: path.join(cwd, '.bajin', 'skills'), source: 'project' },
     { dir: path.join(stateHome(home), 'skills'), source: 'user' },
   ];
+  // 插件技能（enabled 的插件追加在最后，优先级最低）
+  try {
+    const { pluginSkillDirs } = await import('./plugins.js');
+    for (const pd of await pluginSkillDirs(home)) roots.push({ dir: pd.dir, source: 'plugin' as const });
+  } catch { /* plugins 模块不可用时跳过 */ }
   const seen = new Set<string>();
   const out: DiscoveredSkill[] = [];
   for (const root of roots) {

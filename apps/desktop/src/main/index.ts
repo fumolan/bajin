@@ -197,6 +197,13 @@ app.whenReady().then(() => {
     return uc.settings;
   });
 
+  // 浏览器面板桥接：渲染层 webview 状态查询（BrowserContent 工具降级用）
+  ipcMain.handle('bajin:browser:navigate', (_e, url: string) => {
+    if (!/^https:\/\//.test(url)) return false;
+    win?.webContents.send('bajin:browser:navigate', { url });
+    return true;
+  });
+
   // 浏览器数据维护（对标 ZCode settings.browser.clearCache/clearAll：Electron session 真实清理）
   ipcMain.handle('bajin:browser:clear-cache', async () => {
     await win?.webContents.session.clearCache();

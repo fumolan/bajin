@@ -115,6 +115,7 @@ const EN: Record<string, string> = {
   '文件编辑与命令执行需逐项批准': 'Edits and commands need per-item approval',
   '文件编辑自动通过，命令仍需批准': 'Edits auto-approved; commands still need approval',
   '所有工具免审批直接执行，谨慎使用': 'All tools run without approval; use with care',
+  '浏览器面板': 'Browser panel', '暂无插件': 'No plugins',
   '返回任务': 'Back to tasks', '没有匹配的技能': 'No matching skills', '外观': 'Appearance', '浏览器': 'Browser', '界面主题与色调': 'Interface theme & tint',
   '界面': 'Interface', '浅色调 / 深色调 / 跟随系统，即时生效': 'Light / Dark / System, applied instantly',
   '跟随系统': 'System', '深色调': 'Dark', '浅色调': 'Light',
@@ -276,6 +277,8 @@ declare global {
       openExternal(url: string): Promise<boolean>;
       browserClearCache(): Promise<boolean>;
       browserClearData(): Promise<boolean>;
+      browserNavigate(url: string): Promise<boolean>;
+      onBrowserNavigate(cb: (url: string) => void): () => void;
       onEvent(cb: (p: { event: string; params: unknown }) => void): () => void;
     };
   }
@@ -770,6 +773,7 @@ function App() {
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [showPanel, setShowPanel] = useState(true);
   const [showTerminal, setShowTerminal] = useState(false);
+  const [showBrowser, setShowBrowser] = useState(false);
   const [uiSettings, setUiSettings] = useState<UISettings>({});
   const [, forceI18n] = useState(0);
   const logRef = useRef<HTMLDivElement>(null);
@@ -1365,7 +1369,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 44</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 45</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
@@ -1544,6 +1548,9 @@ function App() {
         </div>
 
         {/* 集成终端面板（对标 ZCode 终端面板：底部 bash，IPC 流式） */}
+        {showBrowser && (
+          <BrowserPanel onClose={() => setShowBrowser(false)} />
+        )}
         {showTerminal && (
           <TerminalPanel cwd={tab.cwd} fontFamily={uiSettings.terminalFontFamily || undefined} onClose={() => { void window.bajin.termStop(); setShowTerminal(false); }} />
         )}
@@ -1789,6 +1796,30 @@ function TodoPanel({ todos }: { todos: TodoItem[] }): ReactNode {
 }
 
 /* ---------- 集成终端面板（对标 ZCode 终端面板） ---------- */
+
+function BrowserPanel({ onClose }: { onClose: () => void }): ReactNode {
+  const [url, setUrl] = useState('');
+  const [loaded, setLoaded] = useState('');
+  const webviewRef = useRef<Electron.WebviewTag>(null);
+  useEffect(() => {
+    const off = window.bajin.onBrowserNavigate((u) => setUrl(u));
+    return off;
+  }, []);
+  useEffect(() => {
+    if (url && webviewRef.current) void webviewRef.current.loadURL(url).then(() => setLoaded(url)).catch(() => undefined);
+  }, [url]);
+  return (
+    <div className="browser-panel">
+      <div className="browser-head">
+        <span className="browser-url">{loaded || url || '浏览器'}</span>
+        <input className="browser-input" value={url} placeholder="输入 URL…" onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && url.trim()) setUrl(url.trim()); }} />
+        <button className="icon-btn" onClick={onClose}>×</button>
+      </div>
+      <webview ref={webviewRef} className="browser-view" src={url || 'about:blank'} allowpopups="" />
+    </div>
+  );
+}
 
 function TerminalPanel({ cwd, onClose, fontFamily }: { cwd?: string; onClose: () => void; fontFamily?: string }): ReactNode {
   const [lines, setLines] = useState('');
@@ -2383,14 +2414,33 @@ function AgentMemorySection(): ReactNode {
 }
 
 function AgentPluginsSection(): ReactNode {
+  const [plugins, setPlugins] = useState<Array<{ name: string; description: string; version: string; enabled: boolean; skills: string[]; commands: string[] }>>([]);
+  const refresh = useCallback(() => {
+    void window.bajin.rpc<{ plugins: typeof plugins }>('plugins/list').then((r) => setPlugins(r.plugins ?? [])).catch(() => setPlugins([]));
+  }, []);
+  useEffect(refresh, [refresh]);
+  async function toggle(name: string, enabled: boolean): Promise<void> {
+    await window.bajin.rpc('plugins/toggle', { name, enabled }).catch(() => undefined);
+    refresh();
+  }
   return (
     <div className="vp-inner">
-      <h2>插件 <span className="log-meta">Plugin marketplace</span></h2>
+      <h2>{t('插件')} <span className="log-meta">{plugins.length}</span></h2>
       <div className="card flat">
-        <div className="settings-row">
-          <span>插件市场<span className="settings-desc">安装/启用/禁用插件（技能包、命令包、MCP 集成），对标 ZCode plugins</span></span>
-          <span className="log-meta">规划中</span>
-        </div>
+        {plugins.length === 0 ? (
+          <div className="settings-row">
+            <span>{t('暂无插件')}<span className="settings-desc">{t('把插件目录放到 ~/.bajin/plugins/ 下（含 plugin.json + skills/ 或 commands/），自动发现')}</span></span>
+          </div>
+        ) : (
+          plugins.map((p) => (
+            <div key={p.name} className="settings-row">
+              <span>🧩 {p.name} <span className="log-meta">v{p.version}</span>
+                <span className="settings-desc">{p.description}{p.skills.length > 0 ? ` · 技能: ${p.skills.join(', ')}` : ''}{p.commands.length > 0 ? ` · 命令: ${p.commands.join(', ')}` : ''}</span>
+              </span>
+              <Switch checked={p.enabled} onChange={(v) => void toggle(p.name, v)} />
+            </div>
+          ))
+        )}
       </div>
     </div>
   );

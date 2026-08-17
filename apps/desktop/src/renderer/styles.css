@@ -1178,3 +1178,23 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
 .ask-option.multi { display: flex; align-items: center; gap: 8px; text-align: left; }
 .ask-option.multi.picked { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .ask-check { flex: none; font-size: 13px; }
+
+/* 浏览器面板（对标 ZCode browser：底部抽屉 + webview） */
+.browser-panel {
+  flex: none; height: 320px; display: flex; flex-direction: column;
+  border-top: 1px solid var(--border); background: var(--panel);
+}
+.browser-head {
+  display: flex; align-items: center; gap: 8px; padding: 4px 10px;
+  border-bottom: 1px solid var(--border); flex: none;
+}
+.browser-url {
+  font-size: 11.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; flex: 1; min-width: 0;
+}
+.browser-input {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 3px 10px; font-size: 12px; width: 280px; flex: none;
+}
+.browser-input:focus { outline: none; border-color: var(--accent); }
+.browser-view { flex: 1; min-height: 0; }
