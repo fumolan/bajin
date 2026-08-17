@@ -55,6 +55,7 @@ export async function discoverSubagents(cwd: string, home?: string): Promise<Sub
   for (const [dir, source] of [
     [path.join(stateHome(home), 'agents'), 'user'],
     [path.join(cwd, '.bajin', 'agents'), 'project'],
+    [path.join(cwd, '.agents', 'agents'), 'project'],
   ] as const) {
     let files: string[] = [];
     try {

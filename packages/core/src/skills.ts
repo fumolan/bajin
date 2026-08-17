@@ -18,7 +18,9 @@ export interface DiscoveredSkill extends SkillSummary {
 /** 发现顺序（高 → 低）：项目 .bajin/skills → 用户 ~/.bajin/skills → 插件 skills；同名先到先得 */
 export async function discoverSkills(cwd: string, home?: string): Promise<DiscoveredSkill[]> {
   const roots: Array<{ dir: string; source: 'project' | 'user' | 'plugin' }> = [
+    // .agents/ 双前缀兼容：.bajin/ 优先，.agents/ 备选（同名 .bajin 胜）
     { dir: path.join(cwd, '.bajin', 'skills'), source: 'project' },
+    { dir: path.join(cwd, '.agents', 'skills'), source: 'project' },
     { dir: path.join(stateHome(home), 'skills'), source: 'user' },
   ];
   // 插件技能（enabled 的插件追加在最后，优先级最低）

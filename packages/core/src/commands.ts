@@ -76,6 +76,7 @@ async function commandRoots(cwd: string, home?: string): Promise<Array<{ dir: st
   let dir = path.resolve(cwd);
   for (;;) {
     roots.push({ dir: path.join(dir, '.bajin', 'commands'), source: 'project' });
+    roots.push({ dir: path.join(dir, '.agents', 'commands'), source: 'project' });
     if (await exists(path.join(dir, '.git'))) break; // 仓库根（含本级）为止
     const parent = path.dirname(dir);
     if (parent === dir) break; // 文件系统根
