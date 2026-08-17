@@ -1236,3 +1236,28 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
 }
 .automation-actions button:hover { border-color: var(--border-strong); color: var(--text); }
 .automation-actions button.danger:hover { border-color: var(--err); color: var(--err); }
+
+/* 项目卡片（对标 ZCode workspace-group：rounded border + bg + 折叠 + 路径小字） */
+.project-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-lg); margin-bottom: 8px; overflow: hidden;
+}
+.project-card-head {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 12px 4px; cursor: pointer; user-select: none;
+}
+.project-card-chevron { font-size: 10px; color: var(--dim); flex: none; width: 12px; }
+.project-card-icon { font-size: 14px; flex: none; }
+.project-card-name { font-size: 13.5px; font-weight: 600; color: var(--text); flex: 1; }
+.project-card-count {
+  font-size: 10.5px; color: var(--dim); background: var(--panel-2);
+  border-radius: var(--r-pill); padding: 1px 7px; flex: none; line-height: 1.4;
+}
+.project-card-path {
+  font-size: 10.5px; color: var(--dim); opacity: .7;
+  font-family: ui-monospace, Consolas, monospace;
+  padding: 0 12px 6px 38px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.project-card.collapsed .project-card-path { display: none; }
+.project-card .history-item-wrap { padding: 0 6px 4px 20px; }

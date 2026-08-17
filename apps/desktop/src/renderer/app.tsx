@@ -709,16 +709,7 @@ function bucketTasks(history: HistoryItem[], mode: TaskViewMode): Array<[string,
   for (const h of history.filter((x) => x.pinned)) put('已置顶', h);
   const rest = history.filter((x) => !x.pinned);
   if (mode === 'projects') {
-    // ZCode 风格：文件夹名（非全路径），同名不同路径拼接区分
-    const byName = new Map<string, Set<string>>();
-    for (const h of rest) {
-      const name = h.cwd ? (h.cwd.split('/').pop() || h.cwd) : '未知目录';
-      (byName.get(name) ?? byName.set(name, new Set()).get(name)!).add(h.cwd ?? '');
-    }
-    for (const h of rest) {
-      const name = h.cwd ? (h.cwd.split('/').pop() || h.cwd) : '未知目录';
-      put(byName.get(name)!.size > 1 ? `${name} (${h.cwd})` : name, h);
-    }
+    for (const h of rest) put(h.cwd || '未知目录', h);
   } else {
     for (const h of rest) put(h.group ?? '未分组', h);
   }
@@ -1360,30 +1351,58 @@ function App() {
           <span className="refresh" title={t('刷新任务列表')} onClick={() => void refreshHistory()}>⟳</span>
         </div>
         <div className="history-list">
-          {bucketTasks(visibleHistory(), taskViewMode).map(([bucket, items]) => (
-            <div key={bucket}>
-              <div
-                className={`history-group clickable ${collapsedGroups.has(bucket) ? 'collapsed' : ''}`}
-                onClick={() => toggleGroup(bucket)}
-              >{collapsedGroups.has(bucket) ? '▸' : '▾'} {taskViewMode === 'projects' ? '📁' : ''} {t(bucket)}</div>
-              {!collapsedGroups.has(bucket) && items.map((h) => (
-                <TaskListItem
-                  key={h.sessionId}
-                  item={h}
-                  showProject={taskViewMode === 'projects'}
-                  onOpen={() => void openHistory(h.sessionId)}
-                  onChanged={() => void refreshHistory()}
-                  onGoSettings={(sec) => { setView('settings'); setSettingsSection(sec); }}
-                />
-              ))}
-            </div>
-          ))}
+          {taskViewMode === 'projects' ? (
+            bucketTasks(visibleHistory(), 'projects').map(([cwd, items]) => {
+              const name = cwd.split('/').pop() || cwd;
+              const collapsed = collapsedGroups.has(cwd);
+              return (
+                <div key={cwd} className={`project-card ${collapsed ? 'collapsed' : ''}`}>
+                  <div className="project-card-head" onClick={() => toggleGroup(cwd)}>
+                    <span className="project-card-chevron">{collapsed ? '▸' : '▾'}</span>
+                    <span className="project-card-icon">📁</span>
+                    <span className="project-card-name">{name}</span>
+                    <span className="project-card-count">{items.length}</span>
+                  </div>
+                  <div className="project-card-path" title={cwd}>{cwd}</div>
+                  {!collapsed && items.map((h) => (
+                    <TaskListItem
+                      key={h.sessionId}
+                      item={h}
+                      showProject={false}
+                      onOpen={() => void openHistory(h.sessionId)}
+                      onChanged={() => void refreshHistory()}
+                      onGoSettings={(sec) => { setView('settings'); setSettingsSection(sec); }}
+                    />
+                  ))}
+                </div>
+              );
+            })
+          ) : (
+            bucketTasks(visibleHistory(), 'grouped').map(([bucket, items]) => (
+              <div key={bucket}>
+                <div
+                  className={`history-group clickable ${collapsedGroups.has(bucket) ? 'collapsed' : ''}`}
+                  onClick={() => toggleGroup(bucket)}
+                >{collapsedGroups.has(bucket) ? '▸' : '▾'} {t(bucket)}</div>
+                {!collapsedGroups.has(bucket) && items.map((h) => (
+                  <TaskListItem
+                    key={h.sessionId}
+                    item={h}
+                    showProject={false}
+                    onOpen={() => void openHistory(h.sessionId)}
+                    onChanged={() => void refreshHistory()}
+                    onGoSettings={(sec) => { setView('settings'); setSettingsSection(sec); }}
+                  />
+                ))}
+              </div>
+            ))
+          )}
           {!history.length && <div className="history-empty">{t('暂无任务（发送消息后生成）')}</div>}
         </div>
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 47</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 48</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
