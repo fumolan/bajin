@@ -32,6 +32,7 @@ const USAGE = `bajin — 交互式编码代理
 
 子命令:
   migrate [--db <file>]  存量 JSONL 会话迁入 SQLite（幂等；默认 ~/.bajin/sessions.db，遵循 BAJIN_HOME）
+  export <id> [--out f]  导出会话为 Markdown（id 支持前缀匹配；默认 <sessionId>.md）
   app-server --stdio     作为桌面端后端进程运行
 
 配置（作用域链，近的覆盖远的）:
@@ -90,6 +91,30 @@ function main(): void {
       runAppServer();
       return;
     }
+    // 子命令：bajin export <sessionId> [--out file] —— 导出会话为 Markdown
+    if (process.argv[2] === 'export') {
+      const sid = process.argv[3];
+      if (!sid) {
+        console.error('用法: bajin export <sessionId> [--out <file.md>]');
+        process.exit(1);
+      }
+      const outFlag = process.argv[4] === '--out' ? process.argv[5] : undefined;
+      const { loadTranscript, exportSessionMarkdown } = await import('@bajin/core');
+      const sessions = await listSessions(PERSIST_DIR, 200);
+      const hit = sessions.find((s) => s.sessionId.startsWith(sid));
+      if (!hit) {
+        console.error(`未找到会话 ${sid}`);
+        process.exit(1);
+      }
+      const { messages, meta } = await loadTranscript(hit.transcriptPath);
+      const md = exportSessionMarkdown(messages, { ...meta, sessionId: hit.sessionId });
+      const out = outFlag ?? `${hit.sessionId}.md`;
+      const { writeFileSync } = await import('node:fs');
+      writeFileSync(out, md, 'utf8');
+      console.log(`已导出 ${messages.length} 条消息到 ${out}`);
+      return;
+    }
+
     // 子命令：bajin migrate —— 存量 JSONL 会话迁入 SQLite（幂等，可重复执行）
     if (process.argv[2] === 'migrate') {
       const dbFlag = process.argv[3] === '--db' ? process.argv[4] : undefined;
