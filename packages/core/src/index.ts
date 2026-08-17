@@ -48,6 +48,8 @@ export { createCronCreateTool, createCronUpdateTool, createCronDeleteTool, creat
 export { createTaskOutputTool, createTaskStopTool } from './tools/tasks.js';
 export { createEnterWorktreeTool, createExitWorktreeTool } from './tools/worktree.js';
 export { createBrowserNavigateTool, createBrowserContentTool, setBrowserBridge, getBrowserBridge } from './tools/browser.js';
+export { createDiagnosticsTool, parseTscOutput } from './tools/diagnostics.js';
+export type { DiagnosticItem } from './tools/diagnostics.js';
 export type { BrowserBridge } from './tools/browser.js';
 export { backgroundTasks, describeTask } from './background.js';
 export type { BackgroundTask } from './background.js';

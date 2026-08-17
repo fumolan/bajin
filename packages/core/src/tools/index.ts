@@ -6,6 +6,7 @@ import { todoWriteTool, askUserQuestionTool } from './interaction.js';
 import { createWebFetchTool, createWebSearchTool, htmlToText, parseDuckResults, loadWebConfig } from './web.js';
 import { createCronCreateTool, createCronUpdateTool, createCronDeleteTool, createCronListTool } from './cron.js';
 import { createTaskOutputTool, createTaskStopTool } from './tasks.js';
+import { createDiagnosticsTool, parseTscOutput } from './diagnostics.js';
 import { createBrowserNavigateTool, createBrowserContentTool, setBrowserBridge, getBrowserBridge, type BrowserBridge } from './browser.js';
 
 export const builtinTools: ToolDefinition[] = [
@@ -27,6 +28,7 @@ export const builtinTools: ToolDefinition[] = [
   createTaskStopTool(),
   createBrowserNavigateTool(),
   createBrowserContentTool(),
+  createDiagnosticsTool(),
 ];
 
 export { readTool, writeTool, editTool, bashTool, globTool, grepTool, todoWriteTool, askUserQuestionTool };
