@@ -1261,3 +1261,34 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
 }
 .project-card.collapsed .project-card-path { display: none; }
 .project-card .history-item-wrap { padding: 0 6px 4px 20px; }
+
+/* 文件树面板（对标 ZCode file tree：左侧栏内树形展开） */
+.file-tree-panel {
+  width: 220px; flex: none; display: flex; flex-direction: column;
+  border-right: 1px solid var(--border); background: var(--panel);
+  overflow: hidden;
+}
+.ft-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-bottom: 1px solid var(--border); flex: none;
+}
+.ft-title { font-size: 12px; font-weight: 600; color: var(--text-soft); flex: none; }
+.ft-cwd {
+  font-size: 11px; color: var(--dim); flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ft-body { flex: 1; overflow-y: auto; padding: 4px 0; }
+.ft-item {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 8px; cursor: pointer; font-size: 12.5px;
+  color: var(--text-soft); border-radius: var(--r-sm);
+  transition: background .1s;
+  white-space: nowrap; overflow: hidden;
+}
+.ft-item:hover { background: var(--panel-2); color: var(--text); }
+.ft-item.file { color: var(--text-soft); }
+.ft-item.dir { color: var(--text); font-weight: 500; }
+.ft-icon { font-size: 13px; flex: none; width: 16px; text-align: center; }
+.ft-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ft-size { font-size: 10px; color: var(--dim); flex: none; }
+.ft-empty { padding: 16px 12px; font-size: 12px; color: var(--dim); text-align: center; }

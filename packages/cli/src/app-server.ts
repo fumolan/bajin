@@ -216,6 +216,8 @@ export class AppServer {
           return respond(await this.sessionRewind(p as unknown as { sessionId: string; n?: number }));
         case 'config/chain':
           return respond(await this.configChain());
+        case 'fs/list':
+          return respond(await this.fsList(p as unknown as { path?: string }));
         case 'plugins/list':
           return respond({ plugins: await discoverPlugins().catch(() => []) });
         case 'plugins/toggle':
@@ -575,6 +577,29 @@ export class AppServer {
       envKeys: Object.keys(env),
       hint: '优先级：内置默认 < 用户级 < 项目级(远→近) < 环境变量 < 命令行旗标',
     };
+  }
+
+  /** 文件树目录列表（文件树面板用）：名/类型/大小/相对路径 */
+  private async fsList(p: { path?: string }): Promise<Record<string, unknown>> {
+    const dir = p.path?.startsWith('/') ? p.path : this.cwd;
+    const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+    const items = await Promise.all(
+      entries
+        .filter((e) => !e.name.startsWith('.'))
+        .sort((a, b) => (a.isDirectory() === b.isDirectory() ? a.name.localeCompare(b.name) : a.isDirectory() ? -1 : 1))
+        .slice(0, 200)
+        .map(async (e) => {
+          const full = path.join(dir, e.name);
+          const stat = e.isDirectory() ? null : await fs.stat(full).catch(() => null);
+          return {
+            name: e.name,
+            isDir: e.isDirectory(),
+            size: stat?.size ?? 0,
+            path: full,
+          };
+        }),
+    );
+    return { cwd: dir, items };
   }
 
   /** 插件启停（写回 plugin.json） */

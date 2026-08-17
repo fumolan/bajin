@@ -1402,7 +1402,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 51</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 52</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
@@ -1453,6 +1453,16 @@ function App() {
             title="切换右侧状态面板（目标 / 计划 / 进程）"
             onClick={() => setShowPanel((v) => !v)}
           >▤</button>
+          <button
+            className={`icon-only ${showFileTree ? 'on' : ''}`}
+            title={t('文件树')}
+            onClick={() => { setShowFileTree((v) => !v); }}
+          >🗂</button>
+          <button
+            className={`icon-only ${showBrowser ? 'on' : ''}`}
+            title={t('浏览器面板')}
+            onClick={() => { setShowBrowser((v) => !v); }}
+          >🌐</button>
         </div>
 
         {/* 消息流 + 右侧状态面板（对标 ZCode chat.statusPanel） */}
