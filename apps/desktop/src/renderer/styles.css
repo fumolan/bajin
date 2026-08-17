@@ -1198,3 +1198,41 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
 }
 .browser-input:focus { outline: none; border-color: var(--accent); }
 .browser-view { flex: 1; min-height: 0; }
+
+/* 自动化卡片（对标 ZCode：独立卡片 + 图标 + 状态行 + prompt + 操作栏） */
+.automation-cards {
+  display: flex; flex-direction: column; gap: 10px;
+}
+.automation-card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 6px;
+  transition: border-color .12s;
+}
+.automation-card:hover { border-color: var(--border-strong); }
+.automation-card.disabled { opacity: .6; }
+.automation-card-head {
+  display: flex; align-items: center; gap: 8px;
+}
+.automation-icon { font-size: 16px; flex: none; }
+.automation-title { font-size: 14px; font-weight: 600; color: var(--text); flex: 1; }
+.automation-cron {
+  font-size: 11px; color: var(--accent); background: var(--accent-soft);
+  border-radius: var(--r-pill); padding: 2px 8px; flex: none;
+}
+.automation-cron.off { color: var(--dim); background: var(--panel-2); }
+.automation-meta { font-size: 12px; color: var(--dim); }
+.automation-prompt {
+  font-size: 12.5px; color: var(--text-soft); line-height: 1.5;
+  background: var(--bg); border-radius: var(--r); padding: 6px 10px;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.automation-actions {
+  display: flex; gap: 8px; padding-top: 4px;
+}
+.automation-actions button {
+  background: none; border: 1px solid var(--border); color: var(--text-soft);
+  border-radius: var(--r-sm); padding: 4px 12px; font-size: 12.5px; cursor: pointer;
+  transition: border-color .12s, color .12s;
+}
+.automation-actions button:hover { border-color: var(--border-strong); color: var(--text); }
+.automation-actions button.danger:hover { border-color: var(--err); color: var(--err); }

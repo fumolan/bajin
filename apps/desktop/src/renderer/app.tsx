@@ -709,7 +709,16 @@ function bucketTasks(history: HistoryItem[], mode: TaskViewMode): Array<[string,
   for (const h of history.filter((x) => x.pinned)) put('已置顶', h);
   const rest = history.filter((x) => !x.pinned);
   if (mode === 'projects') {
-    for (const h of rest) put(h.cwd || '未知目录', h);
+    // ZCode 风格：文件夹名（非全路径），同名不同路径拼接区分
+    const byName = new Map<string, Set<string>>();
+    for (const h of rest) {
+      const name = h.cwd ? (h.cwd.split('/').pop() || h.cwd) : '未知目录';
+      (byName.get(name) ?? byName.set(name, new Set()).get(name)!).add(h.cwd ?? '');
+    }
+    for (const h of rest) {
+      const name = h.cwd ? (h.cwd.split('/').pop() || h.cwd) : '未知目录';
+      put(byName.get(name)!.size > 1 ? `${name} (${h.cwd})` : name, h);
+    }
   } else {
     for (const h of rest) put(h.group ?? '未分组', h);
   }
@@ -1356,7 +1365,7 @@ function App() {
               <div
                 className={`history-group clickable ${collapsedGroups.has(bucket) ? 'collapsed' : ''}`}
                 onClick={() => toggleGroup(bucket)}
-              >{collapsedGroups.has(bucket) ? '▸' : '▾'} {t(bucket)}</div>
+              >{collapsedGroups.has(bucket) ? '▸' : '▾'} {taskViewMode === 'projects' ? '📁' : ''} {t(bucket)}</div>
               {!collapsedGroups.has(bucket) && items.map((h) => (
                 <TaskListItem
                   key={h.sessionId}
@@ -1374,7 +1383,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 46</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 47</span>
           <button
             className={`side-settings ${view === 'settings' ? 'on' : ''}`}
             title="设置"
@@ -3259,6 +3268,7 @@ interface AutomationInfo {
   nextRunAt?: number;
   lastRunAt?: number;
   sessionId?: string;
+  oneShot?: boolean;
 }
 
 function AutomationsView({ onOpenSession }: { onOpenSession: (sid: string) => void }): ReactNode {
@@ -3283,23 +3293,27 @@ function AutomationsView({ onOpenSession }: { onOpenSession: (sid: string) => vo
       {list.length === 0 ? (
         <div className="history-empty">暂无自动化</div>
       ) : (
-        <div className="provider-cards">
+        <div className="automation-cards">
           {list.map((a) => (
-            <div key={a.id} className="provider-card">
-              <div className="provider-card-main">
-                <div className="provider-name">{a.title} <span className="log-meta">{a.cron}</span></div>
-                <div className="log-meta">
-                  {a.enabled ? `下次 ${a.nextRunAt ? new Date(a.nextRunAt).toLocaleString() : '—'}` : '已暂停'}
-                  {a.lastRunAt ? ` · 上次 ${formatTaskTime(a.lastRunAt)}前` : ''}
-                </div>
-                <div className="model-base">{a.prompt.slice(0, 80)}</div>
+            <div key={a.id} className={`automation-card ${a.enabled ? '' : 'disabled'}`}>
+              <div className="automation-card-head">
+                <span className="automation-icon">{a.oneShot ? '⚡' : '⏰'}</span>
+                <span className="automation-title">{a.title}</span>
+                <span className={`automation-cron ${a.enabled ? '' : 'off'}`}>{a.oneShot ? '一次性' : a.cron}</span>
               </div>
-              <div className="provider-card-actions">
-                {a.sessionId && <button onClick={() => onOpenSession(a.sessionId!)}>会话</button>}
+              <div className="automation-meta">
+                {a.enabled
+                  ? `下次 ${a.nextRunAt ? new Date(a.nextRunAt).toLocaleString() : '—'}`
+                  : t('已暂停')}
+                {a.lastRunAt ? ` · 上次 ${formatTaskTime(a.lastRunAt)}前` : ''}
+              </div>
+              <div className="automation-prompt">{a.prompt.slice(0, 120)}</div>
+              <div className="automation-actions">
+                {a.sessionId && <button onClick={() => onOpenSession(a.sessionId!)}>{t('查看会话')}</button>}
                 <button onClick={() => { void window.bajin.rpc('automations/toggle', { id: a.id, enabled: !a.enabled }).then(() => refresh()); }}>
-                  {a.enabled ? '暂停' : '启用'}
+                  {a.enabled ? t('暂停') : t('启用')}
                 </button>
-                <button className="danger" onClick={() => { void window.bajin.rpc('automations/remove', { id: a.id }).then(() => refresh()); }}>删除</button>
+                <button className="danger" onClick={() => { void window.bajin.rpc('automations/remove', { id: a.id }).then(() => refresh()); }}>{t('删除')}</button>
               </div>
             </div>
           ))}
