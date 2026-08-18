@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, Notification, shell } from 'electron';
+import { platform } from '@bajin/shared';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { readFileSync, writeFileSync, existsSync, cpSync } from 'node:fs';
@@ -96,7 +97,7 @@ function createWindow(): void {
 function agentExtraEnv(): Record<string, string> {
   const uc = loadUserConfig();
   const env: Record<string, string> = {};
-  if (uc.dataDir && uc.dataDir.startsWith('/')) env['BAJIN_HOME'] = uc.dataDir;
+  if (uc.dataDir && platform.isAbsolutePath(uc.dataDir)) env['BAJIN_HOME'] = uc.dataDir;
   const proxy = uc.settings?.proxy?.httpProxy?.trim();
   if (proxy) {
     env['HTTPS_PROXY'] = proxy;
@@ -137,6 +138,7 @@ app.whenReady().then(() => {
       mode: uc.mode ?? null,
       baseUrl: uc.bigmodel?.baseUrl ?? null,
       home: os.homedir(),
+      platform: process.platform, // 渲染层平台分流（shell 选项等）的唯一事实源
     };
   });
 
@@ -217,7 +219,7 @@ app.whenReady().then(() => {
 
   // 在系统文件管理器中定位（任务菜单「在文件管理器中打开」）
   ipcMain.handle('bajin:reveal-path', (_e, p: string) => {
-    if (typeof p !== 'string' || !p.startsWith('/')) return false;
+    if (typeof p !== 'string' || !platform.isAbsolutePath(p)) return false;
     shell.showItemInFolder(p);
     return true;
   });
@@ -263,7 +265,7 @@ app.whenReady().then(() => {
 
   // 数据目录迁移：复制 sessions/ 与 rollout/ 到新目录并记录 dataDir（重启后 agent 以 BAJIN_HOME 指向新目录）
   ipcMain.handle('bajin:data:migrate', async (_e, target: string) => {
-    if (!target.startsWith('/')) return { ok: false, error: '路径无效' };
+    if (!platform.isAbsolutePath(target)) return { ok: false, error: '路径无效' };
     const src = path.join(os.homedir(), '.bajin');
     const copyDir = (from: string, to: string): void => {
       if (!existsSync(from)) return;
@@ -298,10 +300,11 @@ function registerTerminalIpc(): void {
   ipcMain.handle('bajin:term:start', (_e, cwd?: string) => {
     if (term) return { ok: true };
     const cfgShell = loadUserConfig().settings?.terminalShell;
-    const shell = (cfgShell && cfgShell !== 'auto' ? cfgShell : process.env.SHELL) || '/bin/bash';
+    // shell 选择与启动参数（'auto'/未配置 → 平台默认）统一由平台适配层处理
+    const t = platform.terminalCommand(cfgShell, process.env);
     try {
-      term = spawn(shell, ['--login'], {
-        cwd: cwd && cwd.startsWith('/') ? cwd : os.homedir(),
+      term = spawn(t.file, t.args, {
+        cwd: cwd && platform.isAbsolutePath(cwd) ? cwd : os.homedir(),
         env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
       }) as ChildProcessWithoutNullStreams;
     } catch (err) {

@@ -8,6 +8,7 @@ export interface BajinApi {
     mode: string | null;
     baseUrl: string | null;
     home: string | null;
+    platform: string;
   }>;
   rpc<T = Record<string, unknown>>(method: string, params?: unknown): Promise<T>;
   pickDir(): Promise<string | null>;
