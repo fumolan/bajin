@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { terminalShellOptions } from '@bajin/shared/platform/shell-options';
 import { renderMarkdown } from './markdown.js';
 
 /* ---------- 类型 ---------- */
@@ -75,6 +76,17 @@ type SettingsSection =
   | 'agent-memory' | 'agent-plugins' | 'agent-skills' | 'agent-subagents' | 'agent-automations' | 'agent-mcp' | 'agent-commands' | 'agent-hooks'
   | 'usage' | 'logs' | 'about';
 
+/**
+ * 平台 id（UI 平台分流用）：主进程 bootstrap 注入为准确值；bootstrap 完成前以 navigator 自检兜底。
+ * 选项列表等分流逻辑在 @bajin/shared/platform/shell-options（纯函数，渲染层可直接 import）。
+ */
+let bajinPlatformId: string | null = null;
+const platformId = (): string =>
+  (bajinPlatformId ??= navigator.platform.startsWith('Win') ? 'win32' : 'linux');
+
+/** 浏览器（web shim）模式：webview 内嵌浏览器等 Electron 专属能力降级隐藏 */
+const IS_WEB = !!(window as { bajin?: { __web?: boolean } }).bajin?.__web;
+
 const MODES = ['plan', 'build', 'edit', 'yolo'];
 
 /** 权限模式显示名（对标 ZCode mode.label.*：默认模式/计划模式/接受编辑/完全访问） */
@@ -100,8 +112,8 @@ const EN: Record<string, string> = {
   '分组': 'Groups', '项目': 'Projects', '已置顶': 'Pinned', '未分组': 'Ungrouped', '未知目录': 'Unknown Dir',
   '基础': 'Basics', '数据与统计': 'Data & Stats', '关于': 'About', '常规': 'General', '模型设置': 'Models',
   'Agent 能力': 'Agent', '使用统计': 'Usage', '日志': 'Logs', '帮助': 'Help',
-  '记忆': 'Memory', '插件': 'Plugins', '技能': 'Skills', '子代理': 'Subagents',
-  '自动化': 'Automations', '命令': 'Commands', '钩子': 'Hooks',
+  '记忆': 'Memory', '插件': 'Plugins', '子代理': 'Subagents',
+  '命令': 'Commands', '钩子': 'Hooks',
   '置顶任务': 'Pin task', '取消置顶任务': 'Unpin task', '重命名任务': 'Rename task',
   '归档任务': 'Archive task', '取消归档任务': 'Unarchive task', '标记为未读': 'Mark as unread',
   '在分屏打开': 'Open in split pane', '在文件管理器中打开': 'Reveal in file manager',
@@ -253,7 +265,7 @@ interface RemoteWorkspace {
 declare global {
   interface Window {
     bajin: {
-      bootstrap(): Promise<{ mock: boolean; apiKey: string | null; model: string | null; mode: string | null; baseUrl: string | null; home: string | null }>;
+      bootstrap(): Promise<{ mock: boolean; apiKey: string | null; model: string | null; mode: string | null; baseUrl: string | null; home: string | null; platform: string }>;
       rpc<T = Record<string, unknown>>(method: string, params?: unknown): Promise<T>;
       pickDir(): Promise<string | null>;
       remotesList(): Promise<RemoteWorkspace[]>;
@@ -779,6 +791,7 @@ function App() {
   const [showPanel, setShowPanel] = useState(true);
   const [showTerminal, setShowTerminal] = useState(false);
   const [showBrowser, setShowBrowser] = useState(false);
+  const [showFileTree, setShowFileTree] = useState(false);
   const [uiSettings, setUiSettings] = useState<UISettings>({});
   const [, forceI18n] = useState(0);
   const logRef = useRef<HTMLDivElement>(null);
@@ -900,6 +913,7 @@ function App() {
         const boot = await window.bajin.bootstrap();
         bootRef.current = boot;
         bootHome = boot.home ?? null;
+        bajinPlatformId = boot.platform;
         void window.bajin.configGetSettings<UISettings>().then((s) => { setUiSettings(s); setLang(s.locale); forceI18n((n) => n + 1); }).catch(() => undefined);
         const res = await window.bajin.rpc<Record<string, unknown>>('initialize', {
           mock: boot.mock,
@@ -1096,7 +1110,7 @@ function App() {
     try {
       const res = await window.bajin.rpc<Record<string, unknown>>('session/new', { cwd: tab.cwd ?? undefined });
       const sid = String(res['sessionId']);
-      patchTab(null, (t) => ({ sessionId: sid, title: `会话 ${tabSeq}` }));
+      patchTab(null, (t) => ({ ...t, sessionId: sid, title: `会话 ${tabSeq}` }));
       return true;
     } catch {
       return false;
@@ -1403,10 +1417,11 @@ function App() {
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
           <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 54</span>
+          {/* 非 settings 分支内 view 已被收窄（不含 'settings'），切换即进入设置页 */}
           <button
-            className={`side-settings ${view === 'settings' ? 'on' : ''}`}
+            className="side-settings"
             title="设置"
-            onClick={() => { setView(view === 'settings' ? 'chat' : 'settings'); }}
+            onClick={() => setView('settings')}
           >⚙</button>
         </div>
         </>
@@ -1458,15 +1473,18 @@ function App() {
             title={t('文件树')}
             onClick={() => { setShowFileTree((v) => !v); }}
           >🗂</button>
-          <button
-            className={`icon-only ${showBrowser ? 'on' : ''}`}
-            title={t('浏览器面板')}
-            onClick={() => { setShowBrowser((v) => !v); }}
-          >🌐</button>
+          {!IS_WEB && (
+            <button
+              className={`icon-only ${showBrowser ? 'on' : ''}`}
+              title={t('浏览器面板')}
+              onClick={() => { setShowBrowser((v) => !v); }}
+            >🌐</button>
+          )}
         </div>
 
-        {/* 消息流 + 右侧状态面板（对标 ZCode chat.statusPanel） */}
+        {/* 消息流 + 右侧状态面板（对标 ZCode chat.statusPanel）；左栏可选文件树 */}
         <div className="chat-row">
+        {showFileTree && <FileTreePanel cwd={tab.cwd} onPick={(p) => setInput(`Read ${p}`)} />}
         <div className="log" ref={logRef}>
           {tab.items.map((it, i) => {
             if (it.kind === 'user') {
@@ -1840,6 +1858,80 @@ function TodoPanel({ todos }: { todos: TodoItem[] }): ReactNode {
 
 /* ---------- 集成终端面板（对标 ZCode 终端面板） ---------- */
 
+/* 文件树面板（对标 ZCode 文件树，220px 左栏）：fs/list 懒加载逐层展开；点击文件 → 填入 Read 提示词 */
+interface FsEntry { name: string; isDir: boolean; size: number; path: string; }
+
+function FileTreePanel({ cwd, onPick }: { cwd?: string; onPick: (file: string) => void }): ReactNode {
+  const [root, setRoot] = useState('');
+  const [children, setChildren] = useState<Record<string, FsEntry[]>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(false);
+
+  const list = async (dir?: string): Promise<void> => {
+    setLoading(true);
+    try {
+      const res = await window.bajin.rpc<{ cwd?: string; items?: FsEntry[] }>('fs/list', dir ? { path: dir } : {});
+      setRoot(res['cwd'] ?? root);
+      setChildren((c) => ({ ...c, [dir ?? '']: res['items'] ?? [] }));
+    } catch {
+      setChildren((c) => ({ ...c, [dir ?? '']: [] }));
+    } finally {
+      setLoading(false);
+    }
+  };
+  // 空会话 cwd 未定：首次渲染时以 app-server 侧会话 cwd 为根
+  useEffect(() => { void list(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const toggle = (dir: string): void => {
+    setExpanded((e) => {
+      const next = { ...e, [dir]: !e[dir] };
+      if (next[dir] && !children[dir]) void list(dir);
+      return next;
+    });
+  };
+
+  const renderLevel = (dir: string, depth: number): ReactNode =>
+    (children[dir] ?? []).map((e) =>
+      e.isDir ? (
+        <div key={e.path}>
+          <div className="ft-item dir" style={{ paddingLeft: 8 + depth * 12 }} onClick={() => toggle(e.path)}>
+            <span className="ft-icon">{expanded[e.path] ? '📂' : '📁'}</span>
+            <span className="ft-name">{e.name}</span>
+          </div>
+          {expanded[e.path] && renderLevel(e.path, depth + 1)}
+        </div>
+      ) : (
+        <div
+          key={e.path}
+          className="ft-item file"
+          style={{ paddingLeft: 8 + depth * 12 }}
+          title={e.path}
+          onClick={() => onPick(e.path)}
+        >
+          <span className="ft-icon">📄</span>
+          <span className="ft-name">{e.name}</span>
+          <span className="ft-size">{e.size >= 1024 ? `${Math.round(e.size / 1024)}k` : e.size || ''}</span>
+        </div>
+      ),
+    );
+
+  const rootItems = children[''] ?? [];
+  const rootLabel = (root || cwd || '').split(/[\\/]/).pop() || '—';
+  return (
+    <div className="file-tree-panel">
+      <div className="ft-head">
+        <span className="ft-title">文件树</span>
+        <span className="ft-cwd" title={root || cwd || ''}>{rootLabel}</span>
+      </div>
+      <div className="ft-body">
+        {loading && rootItems.length === 0 && <div className="ft-empty">加载中…</div>}
+        {!loading && rootItems.length === 0 && <div className="ft-empty">空目录（或不可读）</div>}
+        {renderLevel('', 0)}
+      </div>
+    </div>
+  );
+}
+
 function BrowserPanel({ onClose }: { onClose: () => void }): ReactNode {
   const [url, setUrl] = useState('');
   const [loaded, setLoaded] = useState('');
@@ -1859,7 +1951,7 @@ function BrowserPanel({ onClose }: { onClose: () => void }): ReactNode {
           onKeyDown={(e) => { if (e.key === 'Enter' && url.trim()) setUrl(url.trim()); }} />
         <button className="icon-btn" onClick={onClose}>×</button>
       </div>
-      <webview ref={webviewRef} className="browser-view" src={url || 'about:blank'} allowpopups="" />
+      <webview ref={webviewRef} className="browser-view" src={url || 'about:blank'} allowpopups={true} />
     </div>
   );
 }
@@ -2261,10 +2353,9 @@ function GeneralSection({ isMock, models, settings, onSettingsChange }: {
             value={settings.terminalShell ?? 'auto'}
             onChange={(e) => onSettingsChange({ terminalShell: e.target.value })}
           >
-            <option value="auto">自动（$SHELL）</option>
-            <option value="/bin/bash">bash</option>
-            <option value="/bin/zsh">zsh</option>
-            <option value="/bin/sh">sh</option>
+            {terminalShellOptions(platformId()).map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
           </select>
         </div>
         <div className="settings-row">
