@@ -18,6 +18,7 @@ function makeHost(cwd: string) {
 }
 
 describe('EnterWorktree / ExitWorktree', () => {
+  // Windows 下多次 git 子进程（init/commit/worktree add/remove…）整体偏慢（杀软扫描等），单独放宽超时
   it('进入：建分支+目录并切 cwd；主工作区文件隔离；退出切回；remove 清理', async () => {
     // 建最小 git 仓库
     await writeFile(path.join(dir, 'base.txt'), 'v1', 'utf8');
@@ -57,7 +58,7 @@ describe('EnterWorktree / ExitWorktree', () => {
     expect(r3.ok).toBe(true);
     expect(r3.output).toContain('已删除');
     await expect(access(path.join(dir, '.bajin-worktrees', 'exp2'))).rejects.toThrow();
-  });
+  }, 60_000);
 
   it('非 git 目录：明确报错不炸', async () => {
     const plain = await mkdtemp(path.join(tmpdir(), 'bajin-wt-plain-'));

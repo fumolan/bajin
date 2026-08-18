@@ -9,7 +9,7 @@
 
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { platform } from '@bajin/shared';
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -38,13 +38,14 @@ async function configDirs(cwd: string): Promise<string[]> {
   const dirs = [path.resolve(cwd)];
   let cur = dirs[0]!;
   for (;;) {
-    const parent = path.dirname(cur);
     const hasGit = await fs.stat(path.join(cur, '.git')).then(() => true, () => false);
-    if (hasGit || parent === cur) break;
+    if (hasGit) return dirs; // .git 根（含 cwd 自身）
+    const parent = path.dirname(cur);
+    // 一路到根都没有 .git：只取 cwd 本级，避免把途中的 ~/.bajin/config.json 误计为项目层
+    if (parent === cur) return [dirs[0]!];
     cur = parent;
     dirs.push(cur);
   }
-  return dirs; // index 0 最近 → 优先级最高，合并时放最后
 }
 
 /**
@@ -91,12 +92,8 @@ export async function loadSettingsChain(
   cwd: string,
   opts: { system?: Record<string, unknown>; home?: string } = {},
 ): Promise<SettingsChain> {
-  // 显式 home=homedir（拼 .bajin）；否则 BAJIN_HOME（状态根）优先于真实家目录
-  const userFile = opts.home
-    ? path.join(opts.home, '.bajin', 'config.json')
-    : process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/')
-      ? path.join(process.env.BAJIN_HOME, 'config.json')
-      : path.join(os.homedir(), '.bajin', 'config.json');
+  // 显式 home=homedir（拼 .bajin）；否则 BAJIN_HOME（状态根）优先于真实家目录——统一走平台层
+  const userFile = path.join(platform.stateRoot(opts.home ? { homeDir: opts.home } : undefined, process.env), 'config.json');
   const layers: Array<Record<string, unknown>> = [];
   if (opts.system) layers.push(opts.system);
   const user = await readJson(userFile);

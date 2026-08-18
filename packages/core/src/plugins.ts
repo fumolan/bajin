@@ -6,7 +6,7 @@
 
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { platform } from '@bajin/shared';
 
 export interface PluginManifest {
   name: string;
@@ -28,13 +28,8 @@ export interface DiscoveredPlugin {
   commands: string[];
 }
 
-function stateHome(home?: string): string {
-  if (home) return path.join(home, '.bajin');
-  return process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/') ? process.env.BAJIN_HOME : path.join(os.homedir(), '.bajin');
-}
-
 export function pluginsRoot(home?: string): string {
-  return path.join(stateHome(home), 'plugins');
+  return path.join(platform.stateRoot({ homeDir: home }, process.env), 'plugins');
 }
 
 /** 发现全部插件（读 plugin.json + 扫描子目录） */

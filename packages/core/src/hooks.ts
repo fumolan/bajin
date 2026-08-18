@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { platform } from '@bajin/shared';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -176,10 +177,12 @@ export class HookRunner {
       ...payload,
     });
     const isCmd = !isProcess(hook);
-    // command 型：spawn(shell, ['-c', 展开后的命令])；process 型：spawn(executable, 展开后的 argv)
-    const file = isCmd ? (hook.shell ?? process.env['BAJIN_SHELL'] ?? '/bin/bash') : hook.command;
+    // command 型：spawn(shell, [flag, 展开后的命令])；process 型：spawn(executable, 展开后的 argv)。
+    // shell 选择与 -c / /c 语义由平台适配层统一处理（显式 shell 优先，缺省回平台默认）
+    const sh = platform.commandShell(isCmd ? (hook.shell ?? process.env['BAJIN_SHELL']) : undefined, process.env);
+    const file = isCmd ? sh.file : hook.command;
     const argv = isCmd
-      ? ['-c', expandTemplates([hook.command], this.ctx)[0]!]
+      ? [sh.flag, expandTemplates([hook.command], this.ctx)[0]!]
       : expandTemplates((hook as HookProcessSpec).args ?? [], this.ctx);
     const cmdForLog = isCmd ? hook.command : [file, ...argv].join(' ');
 

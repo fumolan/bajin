@@ -1,11 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
+import { platform } from '@bajin/shared';
 import type { SkillSummary } from './prompt.js';
-function stateHome(home?: string): string {
-  if (home) return path.join(home, '.bajin');
-  return process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/') ? process.env.BAJIN_HOME : path.join(os.homedir(), '.bajin');
-}
 
 export interface DiscoveredSkill extends SkillSummary {
   /** SKILL.md 绝对路径 */
@@ -21,7 +17,7 @@ export async function discoverSkills(cwd: string, home?: string): Promise<Discov
     // .agents/ 双前缀兼容：.bajin/ 优先，.agents/ 备选（同名 .bajin 胜）
     { dir: path.join(cwd, '.bajin', 'skills'), source: 'project' },
     { dir: path.join(cwd, '.agents', 'skills'), source: 'project' },
-    { dir: path.join(stateHome(home), 'skills'), source: 'user' },
+    { dir: path.join(platform.stateRoot({ homeDir: home }, process.env), 'skills'), source: 'user' },
   ];
   // 插件技能（enabled 的插件追加在最后，优先级最低）
   try {
@@ -299,7 +295,7 @@ python-pptx（pip install python-pptx）。
 
 /** 种入内置技能：仅当目标 SKILL.md 不存在时写入（用户编辑过永不覆盖）。返回本次写入数。 */
 export async function seedBuiltinSkills(home?: string): Promise<number> {
-  const root = path.join(stateHome(home), 'skills');
+  const root = path.join(platform.stateRoot({ homeDir: home }, process.env), 'skills');
   let seeded = 0;
   for (const s of BUILTIN_SKILLS) {
     const file = path.join(root, s.name, 'SKILL.md');

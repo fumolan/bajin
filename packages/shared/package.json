@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./platform/shell-options": {
+      "types": "./dist/platform/shell-options.d.ts",
+      "default": "./dist/platform/shell-options.js"
     }
   },
   "scripts": {
@@ -20,6 +24,7 @@
     "zod": "^4.0.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   }

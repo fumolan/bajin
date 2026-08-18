@@ -1,6 +1,5 @@
 import * as readline from 'node:readline';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import { promises as fs } from 'node:fs';
 import {
   Agent, createGlmProvider, createAnthropicProvider, createMockProvider, listSessions, PermissionPolicy, discoverSkills,
@@ -12,7 +11,7 @@ import {
   readProviders, writeProviders, nextCronRun,
   type SlashCommand, type HooksConfig, type CustomModel, type ProviderEntry, type AgentCallbacks, type MockStep,
 } from '@bajin/core';
-import type { ChatMessage, ModelProvider, PermissionMode, UserAnswer, UserQuestion } from '@bajin/shared';
+import { platform, type ChatMessage, type ModelProvider, type PermissionMode, type UserAnswer, type UserQuestion } from '@bajin/shared';
 import { automationsPath, loadAutomations, saveAutomations, createAutomation, type Automation } from './automations.js';
 
 /**
@@ -581,7 +580,7 @@ export class AppServer {
 
   /** 文件树目录列表（文件树面板用）：名/类型/大小/相对路径 */
   private async fsList(p: { path?: string }): Promise<Record<string, unknown>> {
-    const dir = p.path?.startsWith('/') ? p.path : this.cwd;
+    const dir = p.path && platform.isAbsolutePath(p.path) ? p.path : this.cwd;
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
     const items = await Promise.all(
       entries
@@ -611,7 +610,7 @@ export class AppServer {
 
   /** 从本地目录安装插件 */
   private async pluginInstall(p: { sourceDir: string; name: string }): Promise<Record<string, unknown>> {
-    if (!p.sourceDir?.startsWith('/') || !p.name?.trim()) throw new Error('需要 sourceDir（绝对路径）与 name');
+    if (!p.sourceDir || !platform.isAbsolutePath(p.sourceDir) || !p.name?.trim()) throw new Error('需要 sourceDir（绝对路径）与 name');
     const r = await installPlugin(p.sourceDir, p.name.trim());
     return { plugin: r };
   }
@@ -680,7 +679,7 @@ export class AppServer {
   // —— 默认设置（写入 ~/.bajin/config.json，重启/新会话生效） ——
 
   private async settingsSet(p: { model?: string; mode?: PermissionMode }): Promise<Record<string, unknown>> {
-    const file = path.join(os.homedir(), '.bajin', 'config.json');
+    const file = path.join(platform.stateRoot(undefined, process.env), 'config.json');
     let config: Record<string, unknown> = {};
     try {
       config = JSON.parse(await fs.readFile(file, 'utf8')) as Record<string, unknown>;
@@ -1175,11 +1174,9 @@ export class AppServer {
     return { currentStreak: current, longestStreak: longest };
   }
 
-  /** 状态目录：BAJIN_HOME 可覆盖（桌面端数据目录迁移），缺省 ~/.bajin */
+  /** 状态目录：BAJIN_HOME 可覆盖（桌面端数据目录迁移），缺省 ~/.bajin——解析统一在平台适配层 */
   private static stateHome(): string {
-    return process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/')
-      ? process.env.BAJIN_HOME
-      : path.join(os.homedir(), '.bajin');
+    return platform.stateRoot(undefined, process.env);
   }
 
   private persistDir(): string {

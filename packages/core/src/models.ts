@@ -1,10 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
-function stateHome(home?: string): string {
-  if (home) return path.join(home, '.bajin');
-  return process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/') ? process.env.BAJIN_HOME : path.join(os.homedir(), '.bajin');
-}
+import { platform } from '@bajin/shared';
 
 /**
  * 模型目录体系（对标 ZCode 的 models catalog + 自定义模型）：
@@ -73,7 +69,7 @@ export const BUILTIN_MODEL_IDS: readonly string[] = [
 ];
 
 export function configFilePath(home?: string): string {
-  return path.join(stateHome(home), 'config.json');
+  return path.join(platform.stateRoot({ homeDir: home }, process.env), 'config.json');
 }
 
 export async function readCustomModels(home?: string): Promise<CustomModel[]> {

@@ -1,16 +1,13 @@
 import { createGlmProvider, createAnthropicProvider, listSessions, rewindTranscript, openSessionStore, migrateJsonlToStore, readCustomModels, readProviders, resolveModelEndpoint } from '@bajin/core';
-import type { ModelProvider, PermissionMode } from '@bajin/shared';
+import { platform, type ModelProvider, type PermissionMode } from '@bajin/shared';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import { loadConfig } from './config.js';
 import { runRepl } from './repl.js';
 import { runHeadless } from './headless.js';
 import { runAppServer } from './app-server.js';
 
-/** 状态目录：BAJIN_HOME 环境变量可覆盖（桌面端「数据目录迁移」用），缺省 ~/.bajin */
-const HOME_STATE = process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/')
-  ? process.env.BAJIN_HOME
-  : path.join(os.homedir(), '.bajin');
+/** 状态目录：BAJIN_HOME 环境变量可覆盖（桌面端「数据目录迁移」用），缺省 ~/.bajin——解析统一在平台适配层 */
+const HOME_STATE = platform.stateRoot(undefined, process.env);
 const PERSIST_DIR = path.join(HOME_STATE, 'sessions');
 const ROLLOUT_DIR = path.join(HOME_STATE, 'rollout');
 

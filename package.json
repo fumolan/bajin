@@ -8,9 +8,12 @@
   "scripts": {
     "build": "pnpm -r --filter './packages/*' build",
     "test": "pnpm -r --filter './packages/*' test",
-    "typecheck": "pnpm -r --filter './packages/*' typecheck",
+    "typecheck": "pnpm -r typecheck",
     "bundle:cli": "pnpm --filter @bajin/cli bundle",
     "desktop:dev": "pnpm --filter @bajin/desktop dev",
     "desktop:dist": "pnpm build && pnpm bundle:cli && pnpm --filter @bajin/desktop dist"
+  },
+  "dependencies": {
+    "pnpm": "^11.22.0"
   }
 }

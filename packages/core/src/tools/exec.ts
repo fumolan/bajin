@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { ToolDefinition } from '@bajin/shared';
+import { platform, type ToolDefinition } from '@bajin/shared';
 import { spawn } from 'node:child_process';
 import { backgroundTasks, describeTask } from '../background.js';
 
@@ -33,13 +33,11 @@ export const bashTool: ToolDefinition<typeof BashInput> = {
         output: `已在后台启动。${describeTask(t)}${head}\n用 TaskOutput(task_id="${t.taskId}") 获取输出；TaskStop 终止。`,
       };
     }
-    const isWin = process.platform === 'win32';
-    const configured = ctx.env?.['BAJIN_SHELL'] ?? process.env['BAJIN_SHELL'];
-    const shell = configured ?? (isWin ? (process.env['COMSPEC'] ?? 'cmd.exe') : '/bin/bash');
-    const shellArgs = isWin && !configured ? ['/c', input.command] : ['-c', input.command];
+    // shell 选择与 -c / /c 语义由平台适配层统一处理（BAJIN_SHELL 显式优先）
+    const sh = platform.commandShell(ctx.env?.['BAJIN_SHELL'] ?? process.env['BAJIN_SHELL'], process.env);
     const timeout = Math.min(input.timeout_ms ?? DEFAULT_TIMEOUT_MS, 600_000);
     return await new Promise((resolve) => {
-      const child = spawn(shell, shellArgs, {
+      const child = spawn(sh.file, [sh.flag, input.command], {
         cwd: ctx.cwd,
         shell: false,
         env: { ...process.env, ...(ctx.env ?? {}), pwd: ctx.cwd },

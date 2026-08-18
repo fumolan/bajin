@@ -122,3 +122,7 @@ export interface ModelProvider {
 export function toolSchemaToParameters(schema: z.ZodType): Record<string, unknown> {
   return z.toJSONSchema(schema) as Record<string, unknown>;
 }
+
+// ---------- 平台适配层（业务代码只依赖 platform 接口，平台差异见 platform/ 目录） ----------
+
+export * from './platform/index.js';

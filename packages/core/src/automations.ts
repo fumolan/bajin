@@ -6,8 +6,8 @@
 
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { platform } from '@bajin/shared';
 import { nextCronRun } from './cron.js';
 
 /** 自动化条目 */
@@ -29,13 +29,9 @@ export interface Automation {
   sessionId?: string;
 }
 
-function stateHome(home?: string): string {
-  const base = home ?? process.env.BAJIN_HOME ?? os.homedir();
-  return base.startsWith('/') ? base : path.join(os.homedir(), '.bajin');
-}
-
 export function automationsPath(home?: string): string {
-  return path.join(stateHome(home), 'automations.json');
+  // home 语义 = 状态根本身；BAJIN_HOME/家目录回退由平台层统一处理
+  return path.join(platform.stateRoot({ root: home }, process.env), 'automations.json');
 }
 
 export async function loadAutomations(home?: string): Promise<Automation[]> {

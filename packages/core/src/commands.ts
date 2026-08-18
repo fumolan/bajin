@@ -1,10 +1,6 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
-function stateHome(home?: string): string {
-  if (home) return path.join(home, '.bajin');
-  return process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/') ? process.env.BAJIN_HOME : path.join(os.homedir(), '.bajin');
-}
+import { platform } from '@bajin/shared';
 
 /**
  * 自定义 slash 命令（对标 ZCode 的 commands 体系，净室实现）：
@@ -66,7 +62,7 @@ export async function discoverCommands(cwd: string, home?: string): Promise<Slas
 /** 命令根目录列表（高 → 低）：用户级在前；工作区从 cwd 向上到 git 根每级收集 */
 async function commandRoots(cwd: string, home?: string): Promise<Array<{ dir: string; source: 'user' | 'project' | 'plugin' }>> {
   const roots: Array<{ dir: string; source: 'user' | 'project' | 'plugin' }> = [
-    { dir: path.join(stateHome(home), 'commands'), source: 'user' },
+    { dir: path.join(platform.stateRoot({ homeDir: home }, process.env), 'commands'), source: 'user' },
   ];
   // 插件命令（enabled 的插件追加在最后，优先级最低）
   try {

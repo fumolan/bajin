@@ -7,11 +7,7 @@
 
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
-function stateHome(home?: string): string {
-  if (home) return path.join(home, '.bajin');
-  return process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/') ? process.env.BAJIN_HOME : path.join(os.homedir(), '.bajin');
-}
+import { platform } from '@bajin/shared';
 
 export interface SubagentDef {
   name: string;
@@ -53,7 +49,7 @@ function parseDef(raw: string, file: string, source: 'user' | 'project'): Subage
 export async function discoverSubagents(cwd: string, home?: string): Promise<SubagentDef[]> {
   const out = new Map<string, SubagentDef>();
   for (const [dir, source] of [
-    [path.join(stateHome(home), 'agents'), 'user'],
+    [path.join(platform.stateRoot({ homeDir: home }, process.env), 'agents'), 'user'],
     [path.join(cwd, '.bajin', 'agents'), 'project'],
     [path.join(cwd, '.agents', 'agents'), 'project'],
   ] as const) {

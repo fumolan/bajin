@@ -9,9 +9,8 @@
 
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import { z } from 'zod';
-import type { ToolDefinition } from '@bajin/shared';
+import { platform, type ToolDefinition } from '@bajin/shared';
 
 export interface MemoryEntry {
   at: string;
@@ -19,15 +18,9 @@ export interface MemoryEntry {
   scope: 'user' | 'project';
 }
 
-function stateHome(): string {
-  return process.env.BAJIN_HOME && process.env.BAJIN_HOME.startsWith('/')
-    ? process.env.BAJIN_HOME
-    : path.join(os.homedir(), '.bajin');
-}
-
 export function memoryFilePath(cwd: string, scope: 'user' | 'project'): string {
   return scope === 'user'
-    ? path.join(stateHome(), 'memory', 'MEMORY.md')
+    ? path.join(platform.stateRoot(undefined, process.env), 'memory', 'MEMORY.md')
     : path.join(cwd, '.bajin', 'memory', 'MEMORY.md');
 }
 

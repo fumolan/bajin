@@ -5,6 +5,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { platform } from '@bajin/shared';
 
 const BUFFER_CAP = 64 * 1024;
 const MAX_TASKS = 32;
@@ -34,9 +35,8 @@ class BackgroundTaskManagerImpl {
       if (oldestDone) this.tasks.delete(oldestDone.taskId);
       else this.tasks.delete(this.tasks.keys().next().value!);
     }
-    const isWin = process.platform === 'win32';
-    const shell = env?.['BAJIN_SHELL'] ?? process.env['BAJIN_SHELL'] ?? (isWin ? (process.env['COMSPEC'] ?? 'cmd.exe') : '/bin/bash');
-    const shellArgs = isWin && !env?.['BAJIN_SHELL'] && !process.env['BAJIN_SHELL'] ? ['/c', command] : ['-c', command];
+    // shell 选择与 -c / /c 语义由平台适配层统一处理（BAJIN_SHELL 显式优先）
+    const sh = platform.commandShell(env?.['BAJIN_SHELL'] ?? process.env['BAJIN_SHELL'], process.env);
     const task: BackgroundTask = {
       taskId: `task_${++this.seq}_${Date.now().toString(36)}`,
       command,
@@ -45,7 +45,7 @@ class BackgroundTaskManagerImpl {
       output: '',
     };
     try {
-      task.proc = spawn(shell, shellArgs, {
+      task.proc = spawn(sh.file, [sh.flag, command], {
         cwd,
         shell: false,
         env: { ...process.env, ...(env ?? {}), pwd: cwd },

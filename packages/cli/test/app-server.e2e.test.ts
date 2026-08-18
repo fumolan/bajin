@@ -392,14 +392,12 @@ describe('bajin app-server（多会话）', () => {
     const res = await s.request('settings/set', { mode: 'edit' });
     expect(res.result!['saved']).toBe(true);
     const fs = await import('node:fs');
-    const os = await import('node:os');
     const path = await import('node:path');
-    const cfgPath = path.join(os.homedir(), '.bajin', 'config.json');
+    // e2e 给 app-server 注入了 BAJIN_HOME=临时状态目录：settings/set 必须写到这里。
+    // （旧实现直写真实 ~/.bajin/config.json，无视 BAJIN_HOME——桌面端数据目录迁移会失效）
+    const cfgPath = path.join(dir, 'state-home', 'config.json');
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')) as { mode?: string };
     expect(cfg['mode']).toBe('edit');
-    // 还原默认，避免影响其他用例
-    cfg['mode'] = 'build';
-    fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
   });
 
   it('自定义 slash 命令：commands/list 发现 + send 内展开执行', async () => {
