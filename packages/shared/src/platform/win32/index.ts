@@ -19,5 +19,8 @@ export const win32Adapter: PlatformAdapter = {
   stateRoot(input, env) {
     return resolveStateRoot(input, env);
   },
-  isAbsolutePath: path.isAbsolute,
+  isAbsolutePath(p) {
+    // Windows 绝对路径：盘符（C:\）或 UNC（\\server\share）；在非 win32 平台上也能正确判定
+    return path.isAbsolute(p) || /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\');
+  },
 };
