@@ -489,14 +489,38 @@ function getWebHtml(): string {
 <title>bajin</title>
 <link rel="stylesheet" href="/styles.css">
 <style>
-/* Web 特有：去掉 Electron 的 app-region 拖拽 */
-.topbar { -webkit-app-region: no-drag !important; }
-/* body 高度 */
 html, body, #root { height: 100%; margin: 0; }
+.topbar { -webkit-app-region: no-drag !important; }
+#err-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: #1a1b1e; color: #dd6873;
+  padding: 40px; font: 14px/1.6 monospace;
+  display: none; white-space: pre-wrap; overflow-y: auto;
+}
 </style>
 </head>
 <body>
 <div id="root"></div>
+<div id="err-overlay"></div>
+<script>
+// 捕获所有 JS 错误并显示（调试用）
+window.onerror = function(msg, src, line, col, err) {
+  var el = document.getElementById('err-overlay');
+  if (el) {
+    el.style.display = 'block';
+    el.textContent += 'ERROR: ' + msg + '\n' +
+      '  at ' + (src || '?') + ':' + line + ':' + col + '\n' +
+      (err && err.stack ? err.stack.split('\n').slice(0,5).join('\n') : '') + '\n\n';
+  }
+};
+window.addEventListener('unhandledrejection', function(e) {
+  var el = document.getElementById('err-overlay');
+  if (el) {
+    el.style.display = 'block';
+    el.textContent += 'PROMISE REJECT: ' + (e.reason && e.reason.message || e.reason) + '\n\n';
+  }
+});
+</script>
 <script src="/web-bridge.js"></script>
 <script src="/app-web.js"></script>
 </body>
