@@ -30,7 +30,7 @@ const USAGE = `bajin — 交互式编码代理
 子命令:
   migrate [--db <file>]  存量 JSONL 会话迁入 SQLite（幂等；默认 ~/.bajin/sessions.db，遵循 BAJIN_HOME）
   export <id> [--out f]  导出会话为 Markdown（id 支持前缀匹配；默认 <sessionId>.md）
-  server [--port N]      浏览器 Notebook 模式（类似 Jupyter，默认端口 4444）
+  server [--port N]      浏览器完整 bajin UI（默认端口 4444）
   app-server --stdio     作为桌面端后端进程运行
 
 配置（作用域链，近的覆盖远的）:
@@ -137,12 +137,12 @@ function main(): void {
     }
     const config = await loadConfig(process.cwd());
 
-    // 子命令：bajin server [--port N] —— 浏览器 Notebook 模式（类似 Jupyter）
+    // 子命令：bajin server [--port N] —— 浏览器完整 bajin UI（与桌面端一致）
     if (process.argv[2] === 'server') {
       const portFlag = process.argv.indexOf('--port');
       const port = portFlag > 0 ? Number(process.argv[portFlag + 1]) : 4444;
-      const { startNotebookServer } = await import('./notebook-server.js');
-      startNotebookServer({
+      const { startWebServer } = await import('./web-server.js');
+      startWebServer({
         port,
         cwd: process.cwd(),
         model: config.model ?? 'glm-4.7',
