@@ -494,6 +494,7 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
           </button>
           <ContextIndicator usage={contextUsage} />
           <span className="spacer" />
+          <VoiceButton onText={(t) => setInput((p) => p + (p ? " " : "") + t)} />
           {busy ? (
             <button className="send-btn stop-mode" onClick={onStop} title={t('停止（Esc）')}>⏹</button>
           ) : (
@@ -892,6 +893,7 @@ function App() {
   const [showProcMonitor, setShowProcMonitor] = useState(false);
   const [gitStatus, setGitStatus] = useState<{ isRepo: boolean; branch: string; dirtyCount: number; staged: number; unstaged: number; dirtyFiles: string[]; recentCommits: Array<{ hash: string; message: string }>; diffStat: string } | null>(null);
   const [showGitPanel, setShowGitPanel] = useState(false);
+  const [editorFile, setEditorFile] = useState<string | null>(null);
   const [uiSettings, setUiSettings] = useState<UISettings>({});
   const [, forceI18n] = useState(0);
   const logRef = useRef<HTMLDivElement>(null);
@@ -982,6 +984,15 @@ function App() {
       return next;
     });
   }, []);
+
+  /* 草稿保存 */
+  useEffect(() => {
+    const saved = localStorage.getItem('bajin-draft');
+    if (saved && !input) setInput(saved);
+  }, []);
+  useEffect(() => {
+    if (input) localStorage.setItem('bajin-draft', input); else localStorage.removeItem('bajin-draft');
+  }, [input]);
 
   /* Git 状态加载 */
   const refreshGitStatus = useCallback(() => {
@@ -1624,6 +1635,7 @@ function App() {
         {/* 消息流 + 右侧状态面板（对标 ZCode chat.statusPanel）；左栏可选文件树 */}
         <div className="chat-row">
         {showProcMonitor && (<ProcessMonitorPanel onClose={() => setShowProcMonitor(false)} />)}
+        {editorFile && (<FileEditorPanel filePath={editorFile} onClose={() => setEditorFile(null)} />)}
         {showFileTree && <FileTreePanel cwd={tab.cwd} onPick={(p) => setInput(`Read ${p}`)} />}
         <div className="log" ref={logRef}>
           {tab.items.map((it, i) => {
@@ -2081,6 +2093,63 @@ function FileTreePanel({ cwd, onPick }: { cwd?: string; onPick: (file: string) =
         {!loading && rootItems.length === 0 && <div className="ft-empty">空目录（或不可读）</div>}
         {renderLevel('', 0)}
       </div>
+    </div>
+  );
+}
+
+function VoiceButton({ onText }: { onText: (t: string) => void }): ReactNode {
+  const [on, setOn] = useState(false);
+  const ref = useRef<{ stop: () => void } | null>(null);
+  function toggle(): void {
+    if (on) { ref.current?.stop(); setOn(false); return; }
+    const W = window as unknown as { SpeechRecognition?: new () => never; webkitSpeechRecognition?: new () => never };
+    const Ctor = W.SpeechRecognition ?? W.webkitSpeechRecognition;
+    if (!Ctor) return;
+    const rec = new Ctor();
+    (rec as unknown as { lang: string }).lang = 'zh-CN';
+    (rec as unknown as { continuous: boolean }).continuous = true;
+    (rec as unknown as { onresult: unknown }).onresult = (e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) onText(e.results[i]![0]!.transcript);
+    };
+    (rec as unknown as { onend: unknown }).onend = () => setOn(false);
+    rec.start();
+    ref.current = rec as unknown as { stop: () => void };
+    setOn(true);
+  }
+  return <button className={`voice-btn ${on ? 'on' : ''}`} onClick={toggle} title={on ? '停止' : '🎤'}>{on ? '🔴' : '🎤'}</button>;
+}
+
+function FileEditorPanel({ filePath, onClose }: { filePath: string; onClose: () => void }): ReactNode {
+  const [content, setContent] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    void window.bajin.rpc('fs/read', { path: filePath })
+      .then((r) => setContent(String((r as { content?: string }).content ?? '')))
+      .catch(() => setContent('// 无法读取'));
+  }, [filePath]);
+  async function save(): Promise<void> {
+    setSaving(true);
+    try {
+      await window.bajin.rpc('fs/write', { path: filePath, content });
+      setDirty(false); setSaved(true); setTimeout(() => setSaved(false), 2000);
+    } catch { /* */ }
+    setSaving(false);
+  }
+  return (
+    <div className="file-editor">
+      <div className="ft-head">
+        <span className="ft-title">📝 {filePath.split('/').pop()}</span>
+        <span className="log-meta">{filePath.split('/').length - 1} 行</span>
+        <span style={{ flex: 1 }} />
+        {saved && <span style={{ color: 'var(--ok)', fontSize: 12 }}>✓</span>}
+        <button disabled={!dirty || saving} onClick={() => void save()} style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 12px', cursor: 'pointer' }}>保存</button>
+        <button className="icon-btn" onClick={onClose}>×</button>
+      </div>
+      <textarea className="editor-textarea" value={content} spellCheck={false}
+        onChange={(e) => { setContent(e.target.value); setDirty(true); }}
+        onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (dirty) void save(); } }} />
     </div>
   );
 }

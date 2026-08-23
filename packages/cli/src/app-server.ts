@@ -215,6 +215,8 @@ export class AppServer {
           return respond(await this.sessionRewind(p as unknown as { sessionId: string; n?: number }));
         case 'config/chain':
           return respond(await this.configChain());
+        case 'fs/write':
+          return respond(await this.fsWrite(p as unknown as { path: string; content: string }));
         case 'git/status':
           return respond(await this.gitStatus());
         case 'sys/proc':
@@ -595,6 +597,13 @@ export class AppServer {
     }
     const r = await s.agent.compact();
     return { queued: false, ...r as Record<string, unknown> };
+  }
+
+  /** 文件写入（编辑器保存用） */
+  private async fsWrite(p: { path: string; content: string }): Promise<Record<string, unknown>> {
+    if (!p.path?.startsWith('/')) throw new Error('需要绝对路径');
+    await fs.writeFile(p.path, p.content, 'utf8');
+    return { written: p.path, bytes: Buffer.byteLength(p.content) };
   }
 
   /** Git 状态（对标 ZCode git integration）：分支+脏文件+最近提交+diff 摘要 */
