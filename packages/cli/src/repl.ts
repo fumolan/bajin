@@ -21,7 +21,38 @@ export interface ReplOptions {
 
 export async function runRepl(opts: ReplOptions): Promise<void> {
   console.log(BANNER);
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    // Tab 补全：/ 前缀补全命令，其余补全文件路径
+    completer: (line: string): [string[], string] => {
+      // 斜杠命令补全
+      if (line.startsWith('/') && !line.includes(' ')) {
+        const cmds = [
+          '/help', '/exit', '/quit', '/clear', '/compact', '/mode',
+          '/model', '/new', '/interrupt', '/git status', '/git diff', '/git log',
+        ];
+        const hits = cmds.filter((c) => c.startsWith(line));
+        return [hits.length ? hits : cmds, line];
+      }
+      // 文件路径补全
+      const lastWord = line.split(/\s+/).pop() ?? '';
+      if (!lastWord || lastWord.startsWith('/')) return [[], lastWord];
+      try {
+        const { readdirSync } = require('node:fs') as typeof import('node:fs');
+        const dir = lastWord.includes('/')
+          ? require('node:path').dirname(lastWord)
+          : '.';
+        const prefix = lastWord.includes('/')
+          ? require('node:path').basename(lastWord)
+          : lastWord;
+        const files = readdirSync(require('node:path').resolve(opts.cwd, dir), { withFileTypes: true })
+          .map((e: { name: string; isDirectory: () => boolean }) => e.isDirectory() ? e.name + '/' : e.name)
+          .filter((f: string) => f.startsWith(prefix));
+        return [files.map((f: string) => (dir === '.' ? f : dir + '/' + f)), lastWord];
+      } catch { return [[], lastWord]; }
+    },
+  });
 
   const callbacks: AgentCallbacks = {
     onText: (delta) => process.stdout.write(delta),
