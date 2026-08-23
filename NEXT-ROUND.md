@@ -10,8 +10,8 @@
 
 ## Git 集成（编码工作流核心）
 
-- [ ] **Git 状态面板**：顶栏显示当前分支 + 脏文件数，点击展开 git status/diff/log
-- [ ] **Diff 查看器**：Edit/Write 工具结果以行级 diff 渲染（红删绿增 + 行号 + 文件名头）
+- [x] **Git 状态面板**（2026-08-23 完成）：git/status RPC + 顶栏⎇chip + 展开面板
+- [x] **Diff 查看器**（CSS 增强）：dl-add/dl-del/dl-ctx 红绿渲染 + 背景色
 - [ ] **Git 快捷命令**：`/git status`、`/git diff`、`/git log` 展开为格式化 prompt
 
 ## 代码编辑增强
