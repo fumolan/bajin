@@ -228,6 +228,20 @@ export function startWebServer(opts: WebServerOptions): http.Server {
     if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
     // ── 静态文件 ──
+    // HEAD 请求：与 GET 同路由但不返回 body
+    if (req.method === 'HEAD') {
+      const getCurl = await new Promise<string>((resolve) => {
+        const proxy = http.request(url, { method: 'GET', host: 'localhost', port }, (proxyRes) => {
+          res.writeHead(proxyRes.statusCode ?? 200, proxyRes.headers);
+          proxyRes.resume();
+          proxyRes.on('end', () => resolve(''));
+        });
+        proxy.end();
+      });
+      void getCurl;
+      return;
+    }
+
     if (req.method === 'GET') {
       // 主页
       if (url.pathname === '/' || url.pathname === '/index.html') {
