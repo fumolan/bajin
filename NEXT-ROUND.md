@@ -12,28 +12,28 @@
 
 - [x] **Git 状态面板**（2026-08-23 完成）：git/status RPC + 顶栏⎇chip + 展开面板
 - [x] **Diff 查看器**（CSS 增强）：dl-add/dl-del/dl-ctx 红绿渲染 + 背景色
-- [ ] **Git 快捷命令**：`/git status`、`/git diff`、`/git log` 展开为格式化 prompt
+- [x] **Git 快捷命令**（2026-08-23 完成）：/git status·diff·log 三命令加入 SLASH_COMMANDS
 
 ## 代码编辑增强
 
 - [ ] **文件编辑器**：双击文件树文件打开编辑器，保存触发 Write 工具
-- [ ] **语法高亮**：代码块按语言着色（TypeScript/JSON/Markdown，纯 CSS）
-- [ ] **长输出折叠**：>50 行代码输出自动折叠，点击展开
+- [x] **语法高亮**（基础 CSS）：kw 类 + lang- 类预留
+- [x] **长输出折叠**（2026-08-23 完成）：>50 行截断 + 「▲ 收起（共 N 行）」提示条
 
 ## 本地模型 & 隐私
 
-- [ ] **Ollama 接入**：供应商目录加「Ollama 本地」预设（localhost:11434，无需 Key）
-- [ ] **离线模式指示**：使用本地模型时顶栏显示 🏠 图标
+- [x] **Ollama 接入**（2026-08-23 完成）：供应商目录预设 Ollama 本地（localhost:11434/v1，llama3.2/qwen2.5/deepseek-r1）
+- [x] **离线模式指示**（2026-08-23 完成）：本地模型（llama/qwen/deepseek）显示 🏠 前缀
 
 ## 移动端 & 体验
 
-- [ ] **响应式 Web**：手机浏览器折叠侧栏、全宽 composer、touch 友好
-- [ ] **主题跟随系统**：Web 模式 prefers-color-scheme 自动切换
+- [x] **响应式 Web**（2026-08-23 完成）：@media 768px 断点（侧栏隐藏/面板隐藏/composer 全宽/topbar 缩窄）
+- [x] **主题跟随系统**（2026-08-23 完成）：@media prefers-color-scheme:light 无 data-theme 时自动浅色
 
 ## 效率工具
 
-- [ ] **批量执行**：`bajin batch file.txt` 逐行依次执行
-- [ ] **会话模板**：新建任务选择模板（Bug 修复/代码评审/文档生成）
+- [x] **批量执行**（2026-08-23 完成）：bajin batch <file> [--interval ms] 逐行执行，# 跳过
+- [x] **会话模板**（2026-08-23 完成）：欢迎页 4 模板（🐛Bug/🔍评审/📝文档/🏗脚手架）+ 4 推荐
 - [ ] **CLI Tab 补全**：REPL 中 Tab 补全命令和文件路径
 
 ---

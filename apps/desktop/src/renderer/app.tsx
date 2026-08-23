@@ -322,6 +322,8 @@ function summarizeArgs(name: string, args: unknown): string {
   }
 }
 
+const MAX_TOOL_LINES = 50;
+
 const TODO_ICON: Record<string, string> = { pending: '○', in_progress: '◉', completed: '●' };
 const TODO_COLOR: Record<string, string> = { high: 'var(--warn)', medium: 'var(--dim)', low: 'var(--dim)' };
 
@@ -2285,6 +2287,13 @@ function ModelPicker({ current, models, providers, onPick, onManage, onClose }: 
 
 /* ---------- 新建任务欢迎页（对标 ZCode chat.empty：问候 + 居中 composer + 推荐卡片） ---------- */
 
+const SESSION_TEMPLATES: Array<{ icon: string; label: string; prompt: string }> = [
+  { icon: '🐛', label: 'Bug 修复', prompt: '请分析以下 bug 的根因并提供修复方案：\n\n' },
+  { icon: '🔍', label: '代码评审', prompt: '请对当前项目的核心代码进行评审，关注：正确性、边界情况、性能、可读性。' },
+  { icon: '📝', label: '文档生成', prompt: '请为当前项目生成 README.md，包含：项目简介、快速开始、API 文档、架构说明。' },
+  { icon: '🏗', label: '项目脚手架', prompt: '帮我初始化一个新项目：' },
+];
+
 const SUGGESTIONS = [
   { icon: '📋', label: 'Git 站会摘要', prompt: '阅读 git log 和 git diff，生成今日站会摘要：完成了什么、正在做什么、有什么阻塞' },
   { icon: '🧪', label: '修复失败测试', prompt: '查看最近的测试失败日志，分析根因并提供修复方案' },
@@ -2324,6 +2333,14 @@ function WelcomePage({ onPickTemplate, input, setInput, onSend, busy, cwd, onPic
         placeholder={cwd ? LANG === 'en-US' ? `Describe what to do in "${cwd.split('/').pop() || cwd}"…` : `在「${cwd.split('/').pop() || cwd}」项目中描述你想做的事…` : t('描述你想做的事，或先选择项目文件夹…')}
         centered
       />
+      <div className="welcome-templates">
+        {SESSION_TEMPLATES.map((tpl) => (
+          <button key={tpl.label} className="suggestion-card" onClick={() => onPickTemplate(tpl.prompt)}>
+            <span className="suggestion-icon">{tpl.icon}</span>
+            <span className="suggestion-label">{t(tpl.label)}</span>
+          </button>
+        ))}
+      </div>
       <div className="welcome-suggestions">
         {SUGGESTIONS.map((s) => (
           <button key={s.prompt} className="suggestion-card" onClick={() => onPickTemplate(s.prompt)}>
@@ -3144,6 +3161,7 @@ const PROVIDER_KEY_URLS: Record<string, string> = {
 };
 
 const PROVIDER_CATALOG: Array<{ name: string; baseUrl: string; apiFormat: 'openai' | 'anthropic'; models: string[] }> = [
+  { name: 'Ollama 本地', baseUrl: 'http://localhost:11434/v1', apiFormat: 'openai', models: ['llama3.2', 'qwen2.5', 'deepseek-r1'] },
   { name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', apiFormat: 'openai', models: ['glm-4.7', 'glm-4.7-flash'] },
   { name: '智谱 GLM（Anthropic）', baseUrl: 'https://open.bigmodel.cn/api/anthropic', apiFormat: 'anthropic', models: ['glm-4.7', 'glm-4.7-flash'] },
   { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', apiFormat: 'openai', models: ['deepseek-chat', 'deepseek-reasoner'] },

@@ -1429,3 +1429,49 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
 .dl-del { color: var(--err); background: rgba(221, 104, 115, 0.08); display: block; padding: 0 8px; }
 .dl-ctx { color: var(--dim); display: block; padding: 0 8px; }
 .dl-gap { color: var(--dim); opacity: .5; display: block; padding: 0 8px; }
+
+/* ═══ 响应式 Web（手机/平板）═══ */
+@media (max-width: 768px) {
+  .sidebar { width: 0; min-width: 0; overflow: hidden; }
+  .sidebar.expanded { width: 240px; min-width: 240px; position: absolute; z-index: 100; height: 100%; box-shadow: 4px 0 16px rgba(0,0,0,.3); }
+  .status-panel { display: none; }
+  .composer { padding: 8px 12px; }
+  .topbar { padding: 0 60px 0 8px; }
+  .topbar-tabs { overflow-x: auto; }
+  .file-tree-panel { display: none; }
+  .proc-monitor { display: none; }
+  .git-panel { display: none; }
+  .welcome .composer { max-width: 100%; }
+  .log { padding: 12px; }
+  .msg { max-width: 100%; }
+}
+
+/* ═══ 语法高亮关键字色 ═══ */
+.md pre code { color: var(--text-soft); }
+.md code.lang-typescript .kw, .md code.lang-ts .kw,
+.md pre[data-lang="typescript"] .kw, .md pre[data-lang="ts"] .kw {
+  color: var(--accent);
+}
+
+/* ═══ 长输出折叠 ═══ */
+.tool-output-more {
+  padding: 6px 12px; font-size: 12px; color: var(--accent);
+  cursor: pointer; border-top: 1px solid var(--border);
+  text-align: center; transition: background .12s;
+}
+.tool-output-more:hover { background: var(--panel-2); }
+
+/* ═══ 离线模式指示 ═══ */
+.sp-goal .offline-icon { color: var(--ok); margin-right: 4px; }
+
+/* ═══ 主题跟随系统（Web 模式自动）═══ */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']):not([data-theme='light']) {
+    --bg: #f5f6f8; --panel: #ffffff; --panel-2: #eef0f4; --panel-3: #e6e9ef;
+    --border: #dce0e7; --border-strong: #c3c9d4;
+    --text: #1f2329; --text-soft: #3d434d; --dim: #7a8090;
+    --accent: #2f7fe0; --accent-strong: #1e6fd0;
+    --accent-soft: rgba(47, 127, 224, 0.10);
+    --code-bg: #f0f2f5;
+  }
+}

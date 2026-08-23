@@ -1,3 +1,6 @@
+import { promisify } from 'node:util';
+import { execFile as ef } from 'node:child_process';
+const execFileAsync = promisify(ef);
 import { createGlmProvider, createAnthropicProvider, listSessions, rewindTranscript, openSessionStore, migrateJsonlToStore, readCustomModels, readProviders, resolveModelEndpoint } from '@bajin/core';
 import { platform, type ModelProvider, type PermissionMode } from '@bajin/shared';
 import * as path from 'node:path';
@@ -136,6 +139,38 @@ function main(): void {
       return;
     }
     const config = await loadConfig(process.cwd());
+
+    // 子命令：bajin batch <file> [--interval ms] —— 批量执行（每行一个 prompt）
+    if (process.argv[2] === 'batch') {
+      const batchFile = process.argv[3];
+      if (!batchFile) {
+        console.error('用法: bajin batch <file.txt>（每行一个 prompt，# 开头跳过）');
+        process.exit(1);
+      }
+      const { readFileSync } = await import('node:fs');
+      const lines = readFileSync(batchFile, 'utf8')
+        .split('\n')
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith('#'));
+      if (!lines.length) { console.error('文件为空或全是注释'); process.exit(1); }
+      console.log(`批量执行 ${lines.length} 个任务：`);
+      const intervalFlag = process.argv.indexOf('--interval');
+      const interval = intervalFlag > 0 ? Number(process.argv[intervalFlag + 1]) || 1000 : 1000;
+      for (let i = 0; i < lines.length; i++) {
+        console.log(`\n[${i + 1}/${lines.length}] ${lines[i]}`);
+        try {
+          await execFileAsync(process.execPath, [
+            path.resolve(__dirname, 'main.js'), '-p', lines[i]!,
+            ...(args.mock ? ['--mock'] : []),
+          ], { env: process.env, timeout: 120_000 });
+        } catch (err) {
+          console.error(`  ✗ 失败: ${err instanceof Error ? err.message : err}`);
+        }
+        if (i < lines.length - 1) await new Promise((r) => setTimeout(r, interval));
+      }
+      console.log('\n✓ 批量执行完成');
+      return;
+    }
 
     // 子命令：bajin server [--port N] —— 浏览器完整 bajin UI（与桌面端一致）
     if (process.argv[2] === 'server') {
