@@ -24,6 +24,7 @@ interface Tab {
   ask: { requestId: string; question: string; options?: Array<{ label: string; description?: string }>; header?: string; multiSelect?: boolean } | null;
   todos: TodoItem[];
   tokens: number;
+  contextUsage?: { tokens: number; maxTokens: number; percent: number; level: string; suggest: string | null };
   model: string;
   mode: string;
   planMode: boolean;
@@ -370,7 +371,7 @@ function ModeMenu({ mode, onPick }: { mode: string; onPick: (m: string) => void 
 }
 
 /** 统一输入框（欢迎页与会话页共用，对标 ZCode chat-composer-input-surface：rounded-2xl 单卡片） */
-function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPickWorkspace, mode, onModeChange, model, onModelClick, placeholder, centered }: {
+function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPickWorkspace, mode, onModeChange, model, onModelClick, placeholder, centered, contextUsage }: {
   input: string;
   setInput: (v: string) => void;
   onSend: () => void;
@@ -385,6 +386,7 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
   onModelClick: () => void;
   placeholder: string;
   centered?: boolean;
+  contextUsage?: { tokens: number; maxTokens: number; percent: number; level: string; suggest: string | null };
 }): ReactNode {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.nativeEvent.isComposing) {
@@ -409,6 +411,7 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
           <button className="model-switch-btn" disabled={busy} onClick={onModelClick} title={t('选择模型')}>
             {model} <span className="chevron">▾</span>
           </button>
+          <ContextIndicator usage={contextUsage} />
           <span className="spacer" />
           {busy ? (
             <button className="send-btn stop-mode" onClick={onStop} title={t('停止（Esc）')}>⏹</button>
@@ -1027,6 +1030,7 @@ function App() {
             approval: null,
             ask: null,
             tokens: Number(p['tokens'] ?? t.tokens),
+            contextUsage: (p['contextUsage'] as Tab['contextUsage']) ?? t.contextUsage,
             items: p['cancelled']
               ? [...t.items, { kind: 'system', text: '⏹ 任务已被用户中断' } as Item]
               : t.items,
@@ -1416,7 +1420,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 55</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 57</span>
           {/* 非 settings 分支内 view 已被收窄（不含 'settings'），切换即进入设置页 */}
           <button
             className="side-settings"
@@ -1636,6 +1640,7 @@ function App() {
           onSend={() => void send()}
           onStop={() => void window.bajin.rpc('interrupt', { sessionId: tab.sessionId })}
           busy={tab.busy}
+          contextUsage={tab.contextUsage}
           disabled={!input.trim()}
           cwd={tab.cwd}
           onPickWorkspace={(dir) => {
@@ -2126,6 +2131,7 @@ function WelcomePage({ onPickTemplate, input, setInput, onSend, busy, cwd, onPic
         onModeChange={onModeChange}
         model={model}
         onModelClick={onModelClick}
+        contextUsage={undefined}
         placeholder={cwd ? LANG === 'en-US' ? `Describe what to do in "${cwd.split('/').pop() || cwd}"…` : `在「${cwd.split('/').pop() || cwd}」项目中描述你想做的事…` : t('描述你想做的事，或先选择项目文件夹…')}
         centered
       />
@@ -2506,6 +2512,20 @@ function DataDirCard(): ReactNode {
 }
 
 /** 开关控件（对标 ZCode 设置页 switch 行） */
+/** 上下文窗口指示器（对标 ZCode：进度条+颜色+压缩建议） */
+function ContextIndicator({ usage }: { usage?: { tokens: number; maxTokens: number; percent: number; level: string; suggest: string | null } }): ReactNode {
+  if (!usage) return null;
+  const color = usage.level === 'danger' ? 'var(--err)' : usage.level === 'warn' ? 'var(--warn)' : 'var(--ok)';
+  const label = usage.tokens > 1000 ? `${Math.round(usage.tokens / 1000)}k` : `${usage.tokens}`;
+  return (
+    <div className="ctx-indicator" title={`上下文用量：${usage.tokens} / ${usage.maxTokens} tokens (${usage.percent}%)`}>
+      <div className="ctx-bar"><div className="ctx-fill" style={{ width: `${usage.percent}%`, background: color }} /></div>
+      <span className="ctx-label" style={{ color }}>{label} / {Math.round(usage.maxTokens / 1000)}k</span>
+      {usage.suggest && <span className="ctx-suggest" style={{ color: 'var(--warn)' }}>· {t(usage.suggest)}</span>}
+    </div>
+  );
+}
+
 function Switch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }): ReactNode {
   return (
     <button className={`switch ${checked ? 'on' : ''}`} onClick={() => onChange(!checked)} role="switch" aria-checked={checked}>

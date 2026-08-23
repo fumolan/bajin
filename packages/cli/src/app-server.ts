@@ -871,6 +871,7 @@ export class AppServer {
   private statusOf(s: SessionState): Record<string, unknown> {
     return {
       tokens: s.agent.contextTokens(),
+            contextUsage: s.agent.contextUsage(),
       model: s.model,
       mode: s.mode,
       planMode: s.agent.planMode,
@@ -940,6 +941,7 @@ export class AppServer {
         toolCalls: result.toolCalls,
         denied: result.denied,
         tokens: s.agent.contextTokens(),
+            contextUsage: s.agent.contextUsage(),
         ...(result.cancelled ? { cancelled: true } : {}),
       };
       this.emit('done', { sessionId: p.sessionId, ...done });

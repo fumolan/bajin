@@ -1292,3 +1292,19 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
 .ft-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ft-size { font-size: 10px; color: var(--dim); flex: none; }
 .ft-empty { padding: 16px 12px; font-size: 12px; color: var(--dim); text-align: center; }
+
+/* 上下文窗口指示器（对标 ZCode context indicator） */
+.ctx-indicator {
+  display: inline-flex; align-items: center; gap: 6px;
+  flex: none; font-size: 11px;
+}
+.ctx-bar {
+  width: 60px; height: 4px; border-radius: 2px;
+  background: var(--panel-2); overflow: hidden; flex: none;
+}
+.ctx-fill {
+  height: 100%; border-radius: 2px;
+  transition: width .3s, background .3s;
+}
+.ctx-label { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ctx-suggest { white-space: nowrap; font-size: 10.5px; }

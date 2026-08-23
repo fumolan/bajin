@@ -651,6 +651,17 @@ export class Agent implements PlanModeHost {
     return estimateTokens(JSON.stringify(this.messages));
   }
 
+  /** 上下文窗口用量（对标 ZCode context indicator）：tokens + 百分比 + 建议动作 */
+  contextUsage(): { tokens: number; maxTokens: number; percent: number; level: 'ok' | 'warn' | 'danger'; suggest: string | null } {
+    const tokens = this.contextTokens();
+    // GLM 系列上下文窗口约 128K tokens
+    const maxTokens = 128_000;
+    const percent = Math.min(100, Math.round((tokens / maxTokens) * 100));
+    if (percent >= 80) return { tokens, maxTokens, percent, level: 'danger', suggest: '建议执行 /compact 压缩上下文' };
+    if (percent >= 50) return { tokens, maxTokens, percent, level: 'warn', suggest: null };
+    return { tokens, maxTokens, percent, level: 'ok', suggest: null };
+  }
+
   /** 当前 todo 清单快照（供 UI 实时渲染） */
   todoSnapshot(): Array<{ content: string; status: string; priority: string }> {
     return ((this.state.get('todoList') as Array<{ content: string; status: string; priority: string }> | undefined) ?? []).map((t) => ({ ...t }));
