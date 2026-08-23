@@ -5,7 +5,7 @@
 ## 用户体验（用户反馈驱动）
 
 - [x] **Web 模式黑屏排查**（2026-08-23 排查完成）：服务器全部端点正常（HTML/CSS/JS/Bridge/RPC/SSE 均 200）；Chrome headless DOM dump 验证 UI 完整渲染（sidebar/composer/topbar/history 均出现）；HEAD 请求已修复支持。黑屏原因为浏览器缓存——建议用户 Ctrl+Shift+R 强制刷新或无痕模式打开
-- [ ] **错误提示友好化**：技术错误（如 "fetch failed", "ECONNREFUSED"）转为用户可理解的中文提示 + 建议操作
+- [x] **错误提示友好化**（2026-08-23 完成）：friendlyError() 10 类技术错误映射 + 4 个关键点应用
 - [ ] **快捷键面板**：按 `?` 或 `Ctrl+/` 弹出所有快捷键列表（对标 ZCode shortcut help）
 
 ## ZCode v3.8 差距
