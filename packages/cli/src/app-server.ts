@@ -148,7 +148,7 @@ export class AppServer {
         case 'set-allowed-tools':
           return respond(this.setAllowedTools(p as unknown as WithSession & { add?: string; remove?: string }));
         case 'compact':
-          return respond(await this.withSessionAsync(p, (s) => s.agent.compact()));
+          return respond(await this.compactWithQueue(p));
         case 'status':
           return respond(this.withSession(p, (s) => this.statusOf(s)));
         case 'interrupt':
@@ -576,6 +576,21 @@ export class AppServer {
       envKeys: Object.keys(env),
       hint: '优先级：内置默认 < 用户级 < 项目级(远→近) < 环境变量 < 命令行旗标',
     };
+  }
+
+  /** Compact 带队列：busy 时排队不拒绝（对标 ZCode chat.compact.queued） */
+  private async compactWithQueue(p: Record<string, unknown>): Promise<Record<string, unknown>> {
+    this.requireInit();
+    const s = this.sessions.get(String(p['sessionId'] ?? ''));
+    if (!s) throw new Error(`会话不存在: ${p['sessionId']}`);
+    if (s.busy) {
+      // busy 时排队，当前轮结束后自动执行
+      s.agent.queueCompact();
+      this.emit('compact-queued', { sessionId: s.agent.sessionId });
+      return { queued: true, message: '任务执行中，压缩已排队（完成后自动执行）' };
+    }
+    const r = await s.agent.compact();
+    return { queued: false, ...r as Record<string, unknown> };
   }
 
   /** 文件树目录列表（文件树面板用）：名/类型/大小/相对路径 */

@@ -388,11 +388,37 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
   centered?: boolean;
   contextUsage?: { tokens: number; maxTokens: number; percent: number; level: string; suggest: string | null };
 }): ReactNode {
-  const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string }>>([]);
+  const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string; content?: string }>>([]);
 
-  function addAttachment(f: { name: string; size: number; type: string }): void {
+  function addAttachment(f: { name: string; size: number; type: string; content?: string }): void {
     if (attachments.length >= 5) return;
     setAttachments((prev) => [...prev, f]);
+  }
+
+  /** 读取文件内容：文本 ≤20KB 全读，大文件截取前 2k 字符，图片只留元数据 */
+  function readFileContent(file: File, callback: (content: string) => void): void {
+    if (file.type.startsWith('image/')) {
+      callback(`[图片] ${file.name} · ${file.type} · ${Math.round(file.size / 1024)}KB`);
+      return;
+    }
+    if (file.size > 20 * 1024) {
+      callback(`[文件过大，截取前 2000 字符] ${file.name}`);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => callback(String(reader.result ?? ''));
+    reader.onerror = () => callback(`[读取失败] ${file.name}`);
+    reader.readAsText(file);
+  }
+
+  function handleDropWithContent(e: React.DragEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    for (const f of Array.from(e.dataTransfer.files)) {
+      readFileContent(f, (content) => {
+        addAttachment({ name: f.name, size: f.size, type: f.type || 'unknown', content });
+      });
+    }
   }
 
   function handleDrop(e: React.DragEvent): void {
@@ -409,7 +435,9 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
         const f = item.getAsFile();
         if (f) {
           e.preventDefault();
-          addAttachment({ name: f.name || 'clipboard', size: f.size, type: f.type || 'unknown' });
+          readFileContent(f, (content) => {
+            addAttachment({ name: f.name || 'clipboard', size: f.size, type: f.type || 'unknown', content });
+          });
         }
       }
     }
@@ -418,12 +446,25 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      if (!busy && !disabled) { onSend(); setAttachments([]); }
+      if (!busy && !disabled) {
+        const attachText = attachments
+          .filter((a) => a.content)
+          .map((a) => `--- 附件: ${a.name} ---\n${a.content}\n--- 附件结束 ---`)
+          .join('\n\n');
+        if (attachText) {
+          setInput((prev) => `${prev}\n\n${attachText}`);
+          // 延迟一帧让 state 更新再发送
+          setTimeout(() => { onSend(); setAttachments([]); }, 50);
+        } else {
+          onSend();
+          setAttachments([]);
+        }
+      }
     }
   };
   return (
     <div className={`composer ${centered ? 'centered' : ''}`}>
-      <div className="composer-card" onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} onPaste={handlePaste}>
+      <div className="composer-card" onDrop={handleDropWithContent} onDragOver={(e) => e.preventDefault()} onPaste={handlePaste}>
         {attachments.length > 0 && (
           <div className="attachment-row">
             {attachments.map((a, i) => (
@@ -1060,6 +1101,9 @@ function App() {
             },
           }));
           break;
+        case 'compact-queued':
+          pushItem(sid ?? null, { kind: 'system', text: '⏳ 压缩已排队，任务完成后自动执行' });
+          break;
         case 'done':
           patchTab(sid ?? null, (t) => ({
             ...t,
@@ -1192,7 +1236,13 @@ function App() {
     switch (cmd) {
       case 'compact': {
         const r = await window.bajin.rpc('compact', { sessionId: tab.sessionId }).catch(() => null);
-        sys(r ? `已压缩：约 ${(r as { before: number }).before} → ${(r as { after: number }).after} tokens` : '压缩失败（会话忙？）');
+        if (r && (r as { queued?: boolean }).queued) {
+          sys('⏳ 任务执行中，压缩已排队（完成后自动执行）');
+        } else if (r) {
+          sys(`已压缩：约 ${(r as { before: number }).before} → ${(r as { after: number }).after} tokens`);
+        } else {
+          sys('压缩失败');
+        }
         break;
       }
       case 'mode':
@@ -1457,7 +1507,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 58</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 59</span>
           {/* 非 settings 分支内 view 已被收窄（不含 'settings'），切换即进入设置页 */}
           <button
             className="side-settings"

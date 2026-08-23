@@ -131,6 +131,18 @@ export class Agent implements PlanModeHost {
   private transcriptPath?: string;
   private mode: PermissionMode;
   private compacting = false;
+  /** 排队的 compact 请求（busy 时入队，当前轮结束后执行） */
+  private compactQueued = false;
+
+  /** 排队 compact（busy 时调用，run() 结束后自动执行） */
+  queueCompact(): void {
+    this.compactQueued = true;
+  }
+
+  /** 是否有排队的 compact */
+  get hasQueuedCompact(): boolean {
+    return this.compactQueued;
+  }
   private readonly opts: AgentOptions;
   private readonly initPromise: Promise<void>;
   private cancelRequested = false;
