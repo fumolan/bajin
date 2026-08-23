@@ -1021,7 +1021,7 @@ function App() {
         void refreshProviders();
         void refreshCommands();
       } catch (err) {
-        pushItem(null, { kind: 'system', text: `agent 初始化失败: ${err instanceof Error ? err.message : err}` });
+        pushItem(null, { kind: 'system', text: `⚠ ${t('初始化失败')}: ${friendlyError(err)}` });
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1125,7 +1125,7 @@ function App() {
           patchTab(sid ?? null, (t) => ({
             ...t,
             busy: false,
-            items: [...t.items, { kind: 'system', text: `⚠ ${p['message']}` } as Item],
+            items: [...t.items, { kind: 'system', text: `⚠ ${friendlyError(p['message'])}` } as Item],
           }));
           break;
         case 'session-resumed':
@@ -1223,7 +1223,7 @@ function App() {
     try {
       await window.bajin.rpc('send', { sessionId: tab.sessionId, text });
     } catch (err) {
-      patchTab(tab.sessionId, (t) => ({ ...t, busy: false, items: [...t.items, { kind: 'system', text: `发送失败: ${err instanceof Error ? err.message : err}` } as Item] }));
+      patchTab(tab.sessionId, (t) => ({ ...t, busy: false, items: [...t.items, { kind: 'system', text: `⚠ ${t('发送失败')}: ${friendlyError(err)}` } as Item] }));
     }
     void refreshHistory();
   }
@@ -1321,7 +1321,7 @@ function App() {
       setActive(tabs.length);
       setView('chat');
     } catch (err) {
-      pushItem(tab.sessionId, { kind: 'system', text: `打开会话失败: ${err instanceof Error ? err.message : err}` });
+      pushItem(tab.sessionId, { kind: 'system', text: `⚠ ${t('打开会话失败')}: ${friendlyError(err)}` });
     }
   }
 
@@ -1507,7 +1507,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 59</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 60</span>
           {/* 非 settings 分支内 view 已被收窄（不含 'settings'），切换即进入设置页 */}
           <button
             className="side-settings"
@@ -2599,6 +2599,22 @@ function DataDirCard(): ReactNode {
 }
 
 /** 开关控件（对标 ZCode 设置页 switch 行） */
+/** 技术错误 → 用户可读中文（对标 ZCode 错误提示体验） */
+function friendlyError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes('ECONNREFUSED') || msg.includes('fetch failed')) return '无法连接服务器。请确认 bajin server 正在运行（bajin server --port 4444）';
+  if (msg.includes('ENOENT')) return '文件或目录不存在。请检查路径是否正确';
+  if (msg.includes('EACCES') || msg.includes('permission denied')) return '没有权限执行此操作。请检查文件/目录权限';
+  if (msg.includes('ETIMEDOUT') || msg.includes('timeout')) return '操作超时。请检查网络连接或稍后重试';
+  if (msg.includes('401') || msg.includes('Unauthorized')) return 'API Key 无效或已过期。请到 设置→模型设置 检查 API Key';
+  if (msg.includes('429') || msg.includes('rate limit')) return '请求频率过高。请稍后重试';
+  if (msg.includes('500') || msg.includes('Internal Server')) return '服务器内部错误。请稍后重试或重启 bajin';
+  if (msg.includes('缺少 API') || msg.includes('API Key')) return '未配置 API Key。请到 设置→模型设置 配置';
+  if (msg.includes('session 不存在') || msg.includes('会话不存在')) return '会话已关闭或不存在。请新建任务';
+  if (msg.includes('app-server 已退出')) return '后端进程已退出。请重启 bajin';
+  return msg; // 无法识别的错误原样返回
+}
+
 /** 上下文窗口指示器（对标 ZCode：进度条+颜色+压缩建议） */
 function ContextIndicator({ usage }: { usage?: { tokens: number; maxTokens: number; percent: number; level: string; suggest: string | null } }): ReactNode {
   if (!usage) return null;
