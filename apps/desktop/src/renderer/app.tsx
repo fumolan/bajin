@@ -1612,6 +1612,7 @@ function App() {
 
         {/* 消息流 + 右侧状态面板（对标 ZCode chat.statusPanel）；左栏可选文件树 */}
         <div className="chat-row">
+        {showProcMonitor && (<ProcessMonitorPanel onClose={() => setShowProcMonitor(false)} />)}
         {showFileTree && <FileTreePanel cwd={tab.cwd} onPick={(p) => setInput(`Read ${p}`)} />}
         <div className="log" ref={logRef}>
           {tab.items.map((it, i) => {

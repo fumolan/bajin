@@ -1361,3 +1361,26 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
   background: var(--bg); border-top: 1px solid var(--border);
 }
 .attachment-chip.clickable { cursor: pointer; }
+
+/* 进程监控面板（对标 ZCode process-monitor） */
+.proc-monitor {
+  flex: none; max-height: 280px; display: flex; flex-direction: column;
+  border-bottom: 1px solid var(--border); background: var(--panel);
+  overflow: hidden;
+}
+.proc-summary {
+  display: flex; gap: 16px; padding: 8px 14px;
+  border-bottom: 1px solid var(--border); flex-wrap: wrap; flex: none;
+}
+.proc-stat { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.proc-label { color: var(--dim); flex: none; }
+.proc-value { color: var(--text); font-variant-numeric: tabular-nums; }
+.proc-table { flex: 1; overflow-y: auto; padding: 4px 10px; }
+.proc-table-head, .proc-table-row {
+  display: grid; grid-template-columns: 60px 70px 50px 50px 1fr;
+  gap: 8px; font-size: 11.5px; padding: 2px 4px;
+}
+.proc-table-head { color: var(--dim); border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); }
+.proc-table-row { color: var(--text-soft); }
+.proc-table-row:hover { background: var(--panel-2); }
+.proc-cmd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, monospace; font-size: 11px; }

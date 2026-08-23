@@ -215,6 +215,8 @@ export class AppServer {
           return respond(await this.sessionRewind(p as unknown as { sessionId: string; n?: number }));
         case 'config/chain':
           return respond(await this.configChain());
+        case 'sys/proc':
+          return respond(this.sysProc());
         case 'fs/list':
           return respond(await this.fsList(p as unknown as { path?: string }));
         case 'plugins/list':
@@ -591,6 +593,54 @@ export class AppServer {
     }
     const r = await s.agent.compact();
     return { queued: false, ...r as Record<string, unknown> };
+  }
+
+  /** 系统进程监控（对标 ZCode process-monitor）：/proc 读取 top N 进程 + CPU/内存概要 */
+  private sysProc(): Record<string, unknown> {
+    const osMod = require('node:os') as typeof import('node:os');
+    const totalMem = osMod.totalmem();
+    const freeMem = osMod.freemem();
+    const loadAvg = osMod.loadavg();
+    const uptime = osMod.uptime();
+
+    // Linux: 读 /proc/stat 取 CPU 使用率
+    let cpuPercent = 0;
+    try {
+      const stat = require('node:fs').readFileSync('/proc/stat', 'utf8').split('\n')[0] ?? '';
+      const parts = stat.split(/\s+/).map(Number);
+      const idle = parts[4] ?? 0;
+      const total = parts.slice(1).reduce((a: number, b: number) => a + b, 0);
+      cpuPercent = total > 0 ? Math.round(((total - idle) / total) * 100) : 0;
+    } catch { /* non-Linux */ }
+
+    // 读 top 进程（简化：只取 agent 自身 + 系统 node 进程）
+    const procs: Array<Record<string, unknown>> = [];
+    try {
+      const { execSync } = require('node:child_process') as typeof import('node:child_process');
+      const out = execSync('ps aux --sort=-%mem | head -15', { encoding: 'utf8', timeout: 3000 });
+      for (const line of out.split('\n').slice(1)) {
+        const cols = line.trim().split(/\s+/);
+        if (cols.length < 11) continue;
+        procs.push({
+          user: cols[0], pid: Number(cols[1]),
+          cpu: Number(cols[2]), mem: Number(cols[3]),
+          rss: Number(cols[5]), // KB
+          command: cols.slice(10).join(' ').slice(0, 80),
+        });
+      }
+    } catch { /* ps 不可用时跳过 */ }
+
+    const agentProc = process.memoryUsage();
+    return {
+      cpuPercent,
+      memPercent: Math.round(((totalMem - freeMem) / totalMem) * 100),
+      totalMem, freeMem,
+      loadAvg,
+      uptimeSeconds: uptime,
+      agentMemoryMB: Math.round(agentProc.rss / 1024 / 1024),
+      agentHeapMB: Math.round(agentProc.heapUsed / 1024 / 1024),
+      processes: procs,
+    };
   }
 
   /** 文件树目录列表（文件树面板用）：名/类型/大小/相对路径 */
