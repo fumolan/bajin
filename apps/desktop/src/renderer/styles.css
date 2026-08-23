@@ -1308,3 +1308,24 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
 }
 .ctx-label { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .ctx-suggest { white-space: nowrap; font-size: 10.5px; }
+
+/* 附件系统（对标 ZCode chat.attachments：拖放/粘贴/chips 展示） */
+.attachment-row {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 12px 0;
+}
+.attachment-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: var(--r-pill); padding: 3px 10px;
+  font-size: 12px; color: var(--text-soft);
+}
+.attachment-chip:hover { border-color: var(--border-strong); }
+.attachment-remove {
+  background: none; border: none; color: var(--dim); cursor: pointer;
+  font-size: 13px; padding: 0 2px; margin-left: 2px; line-height: 1;
+}
+.attachment-remove:hover { color: var(--err); }
+.composer-card {
+  outline: none;
+}
+.composer-card:dragover { border-color: var(--accent); }

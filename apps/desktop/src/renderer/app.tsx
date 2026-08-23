@@ -388,15 +388,52 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
   centered?: boolean;
   contextUsage?: { tokens: number; maxTokens: number; percent: number; level: string; suggest: string | null };
 }): ReactNode {
+  const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string }>>([]);
+
+  function addAttachment(f: { name: string; size: number; type: string }): void {
+    if (attachments.length >= 5) return;
+    setAttachments((prev) => [...prev, f]);
+  }
+
+  function handleDrop(e: React.DragEvent): void {
+    e.preventDefault();
+    e.stopPropagation();
+    for (const f of Array.from(e.dataTransfer.files)) {
+      addAttachment({ name: f.name, size: f.size, type: f.type || 'unknown' });
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent): void {
+    for (const item of Array.from(e.clipboardData.items)) {
+      if (item.kind === 'file') {
+        const f = item.getAsFile();
+        if (f) {
+          e.preventDefault();
+          addAttachment({ name: f.name || 'clipboard', size: f.size, type: f.type || 'unknown' });
+        }
+      }
+    }
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      if (!busy && !disabled) onSend();
+      if (!busy && !disabled) { onSend(); setAttachments([]); }
     }
   };
   return (
     <div className={`composer ${centered ? 'centered' : ''}`}>
-      <div className="composer-card">
+      <div className="composer-card" onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} onPaste={handlePaste}>
+        {attachments.length > 0 && (
+          <div className="attachment-row">
+            {attachments.map((a, i) => (
+              <span key={i} className="attachment-chip" title={`${a.name} · ${a.size}B`}>
+                📎 {a.name} <span className="log-meta">{a.size > 1024 ? `${Math.round(a.size / 1024)}KB` : `${a.size}B`}</span>
+                <button className="attachment-remove" onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="composer-chip-row">
           <WorkspaceChip cwd={cwd} onPick={(dir) => onPickWorkspace(dir)} />
         </div>
@@ -1420,7 +1457,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 57</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 58</span>
           {/* 非 settings 分支内 view 已被收窄（不含 'settings'），切换即进入设置页 */}
           <button
             className="side-settings"
