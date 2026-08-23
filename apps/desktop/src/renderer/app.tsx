@@ -887,6 +887,9 @@ function App() {
   const [showFileTree, setShowFileTree] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [sessionSearch, setSessionSearch] = useState('');
+  const [showProcMonitor, setShowProcMonitor] = useState(false);
+  const [gitStatus, setGitStatus] = useState<{ isRepo: boolean; branch: string; dirtyCount: number; staged: number; unstaged: number; dirtyFiles: string[]; recentCommits: Array<{ hash: string; message: string }>; diffStat: string } | null>(null);
+  const [showGitPanel, setShowGitPanel] = useState(false);
   const [uiSettings, setUiSettings] = useState<UISettings>({});
   const [, forceI18n] = useState(0);
   const logRef = useRef<HTMLDivElement>(null);
@@ -977,6 +980,12 @@ function App() {
       return next;
     });
   }, []);
+
+  /* Git 状态加载 */
+  const refreshGitStatus = useCallback(() => {
+    void window.bajin.rpc('git/status').then((r) => setGitStatus(r as typeof gitStatus)).catch(() => setGitStatus(null));
+  }, []);
+  useEffect(() => { refreshGitStatus(); }, [refreshGitStatus, tab.cwd]);
 
   /* 自动更新检查（对标 ZCode：启动时查 GitHub Releases） */
   useEffect(() => {
@@ -1747,6 +1756,9 @@ function App() {
 
         {showShortcuts && <ShortcutsPanel onClose={() => setShowShortcuts(false)} />}
 
+        {showGitPanel && gitStatus?.isRepo && (
+          <GitPanel status={gitStatus as never} onClose={() => setShowGitPanel(false)} onRefresh={() => refreshGitStatus()} />
+        )}
         {sessionSearch && (
           <div className="session-search-bar">
             <span>🔍 {sessionSearch}</span>
@@ -2066,6 +2078,49 @@ function FileTreePanel({ cwd, onPick }: { cwd?: string; onPick: (file: string) =
         {loading && rootItems.length === 0 && <div className="ft-empty">加载中…</div>}
         {!loading && rootItems.length === 0 && <div className="ft-empty">空目录（或不可读）</div>}
         {renderLevel('', 0)}
+      </div>
+    </div>
+  );
+}
+
+function GitChip({ status, onToggle, expanded }: { status: { isRepo: boolean; branch: string; dirtyCount: number } | null; onToggle: () => void; expanded: boolean }): ReactNode | null {
+  if (!status?.isRepo) return null;
+  return (
+    <button className={`git-chip ${expanded ? 'on' : ''}`} onClick={onToggle} title={`${status.branch} · ${status.dirtyCount} 变更`}>
+      ⎇ {status.branch}{status.dirtyCount > 0 && <span className="git-dirty">{status.dirtyCount}</span>}
+    </button>
+  );
+}
+
+function GitPanel({ status, onClose, onRefresh }: { status: { branch: string; staged: number; unstaged: number; dirtyFiles: string[]; recentCommits: Array<{ hash: string; message: string }>; diffStat: string }; onClose: () => void; onRefresh: () => void }): ReactNode {
+  return (
+    <div className="git-panel">
+      <div className="ft-head">
+        <span className="ft-title">⎇ {status.branch}</span>
+        <span className="log-meta">{status.staged}+{status.unstaged}</span>
+        <span style={{ flex: 1 }} />
+        <button className="icon-btn" onClick={onRefresh}>⟳</button>
+        <button className="icon-btn" onClick={onClose}>×</button>
+      </div>
+      <div className="git-panel-body">
+        {status.dirtyFiles.length > 0 && (
+          <div className="git-section">
+            <div className="settings-nav-group-title">{t('变更文件')} ({status.dirtyFiles.length})</div>
+            {status.dirtyFiles.map((f, i) => (
+              <div key={i} className="git-file-row"><span className="git-file-status">{f.slice(0, 2)}</span><span className="git-file-name">{f.slice(3)}</span></div>
+            ))}
+          </div>
+        )}
+        <div className="git-section">
+          <div className="settings-nav-group-title">{t('最近提交')}</div>
+          {status.recentCommits.map((c) => (
+            <div key={c.hash} className="git-commit-row"><code className="git-hash">{c.hash.slice(0, 7)}</code><span>{c.message}</span></div>
+          ))}
+        </div>
+        <div className="git-section">
+          <div className="settings-nav-group-title">Diff</div>
+          <pre className="git-diff-stat">{status.diffStat}</pre>
+        </div>
       </div>
     </div>
   );

@@ -215,6 +215,8 @@ export class AppServer {
           return respond(await this.sessionRewind(p as unknown as { sessionId: string; n?: number }));
         case 'config/chain':
           return respond(await this.configChain());
+        case 'git/status':
+          return respond(await this.gitStatus());
         case 'sys/proc':
           return respond(this.sysProc());
         case 'fs/list':
@@ -593,6 +595,45 @@ export class AppServer {
     }
     const r = await s.agent.compact();
     return { queued: false, ...r as Record<string, unknown> };
+  }
+
+  /** Git 状态（对标 ZCode git integration）：分支+脏文件+最近提交+diff 摘要 */
+  private async gitStatus(): Promise<Record<string, unknown>> {
+    const { execFile: ef } = require('node:child_process') as typeof import('node:child_process');
+    const exec = (cmd: string, args: string[]): Promise<string> =>
+      new Promise((resolve) => {
+        ef(cmd, args, { cwd: this.cwd, timeout: 5000 }, (err: Error | null, stdout: string) => {
+          resolve(err ? '' : stdout.trim());
+        });
+      });
+
+    const [branch, raw, log, diffStat] = await Promise.all([
+      exec('git', ['rev-parse', '--abbrev-ref', 'HEAD']),
+      exec('git', ['status', '--porcelain']),
+      exec('git', ['log', '--oneline', '-10']),
+      exec('git', ['diff', '--stat', 'HEAD']),
+    ]);
+
+    if (!branch) return { isRepo: false };
+
+    const dirtyFiles = raw ? raw.split('\n') : [];
+    const staged = dirtyFiles.filter((l) => /^[MADR]/.test(l)).length;
+    const unstaged = dirtyFiles.length - staged;
+    const recentCommits = log ? log.split('\n').map((l) => {
+      const [hash, ...msg] = l.split(' ');
+      return { hash: hash ?? '', message: msg.join(' ') };
+    }) : [];
+
+    return {
+      isRepo: true,
+      branch,
+      dirtyCount: dirtyFiles.length,
+      staged,
+      unstaged,
+      dirtyFiles: dirtyFiles.slice(0, 30),
+      recentCommits,
+      diffStat: diffStat || '(无变更)',
+    };
   }
 
   /** 系统进程监控（对标 ZCode process-monitor）：/proc 读取 top N 进程 + CPU/内存概要 */
