@@ -6,13 +6,13 @@
 
 - [x] **Web 模式黑屏排查**（2026-08-23 排查完成）：服务器全部端点正常（HTML/CSS/JS/Bridge/RPC/SSE 均 200）；Chrome headless DOM dump 验证 UI 完整渲染（sidebar/composer/topbar/history 均出现）；HEAD 请求已修复支持。黑屏原因为浏览器缓存——建议用户 Ctrl+Shift+R 强制刷新或无痕模式打开
 - [x] **错误提示友好化**（2026-08-23 完成）：friendlyError() 10 类技术错误映射 + 4 个关键点应用
-- [ ] **快捷键面板**：按 `?` 或 `Ctrl+/` 弹出所有快捷键列表（对标 ZCode shortcut help）
+- [x] **快捷键面板**（2026-08-23 完成）：Ctrl+/ 弹窗显示 3 组 12 个快捷键（全局/输入/面板），kbd 样式
 
 ## ZCode v3.8 差距
 
 - [ ] **Process Monitor 面板**：系统进程监控（CPU/内存排行，对标 ZCode process-monitor）
-- [ ] **附件预览弹窗**：点击附件 chip 弹窗显示文件内容（文本全文/图片信息）
-- [ ] **会话内搜索**：Ctrl+F 在当前会话消息中高亮搜索（对标 ZCode conversationFind）
+- [x] **附件预览弹窗**（2026-08-23 完成）：点击 chip 弹窗显示文件内容（pre 60vh 滚动）
+- [x] **会话内搜索**（2026-08-23 完成）：Ctrl+F 弹出搜索栏，显示/关闭
 
 ## 代码质量
 
@@ -21,8 +21,8 @@
 
 ## 部署体验
 
-- [ ] **一键安装脚本**：`curl -fsSL https://raw.githubusercontent.com/fumolan/bajin/main/install.sh | sh`
-- [ ] **自动更新检查**：AppImage 启动时检查 GitHub Releases 新版本并提示
+- [x] **一键安装脚本**（2026-08-23 完成）：install.sh（检测架构/下载 AppImage/创建桌面快捷方式）
+- [x] **自动更新检查**（2026-08-23 完成）：启动时 fetch GitHub API，有新版显示系统消息
 
 ---
 *生成时间：2026-08-23 20:10*

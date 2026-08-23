@@ -1329,3 +1329,35 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
   outline: none;
 }
 .composer-card:dragover { border-color: var(--accent); }
+
+/* 快捷键面板 */
+.shortcuts-modal { max-width: 480px; width: min(480px, 90vw); }
+.shortcuts-body { padding: 14px 18px 18px; max-height: 60vh; overflow-y: auto; }
+.shortcuts-group { margin-bottom: 14px; }
+.shortcut-row {
+  display: flex; align-items: center; gap: 12px; padding: 4px 0;
+  font-size: 13px; color: var(--text-soft);
+}
+.shortcut-row kbd {
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 2px 8px;
+  font: 11.5px ui-monospace, monospace; color: var(--text);
+  min-width: 80px; text-align: center; flex: none;
+}
+
+/* 会话搜索栏 */
+.session-search-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 16px; background: var(--panel);
+  border-bottom: 1px solid var(--border); font-size: 13px;
+  color: var(--text-soft); flex: none;
+}
+
+/* 附件预览弹窗 */
+.attachment-preview { max-width: 720px; width: min(720px, 90vw); }
+.attachment-preview-body {
+  margin: 0; padding: 14px 18px 18px; max-height: 60vh; overflow: auto;
+  font: 12.5px/1.6 ui-monospace, monospace; white-space: pre-wrap;
+  background: var(--bg); border-top: 1px solid var(--border);
+}
+.attachment-chip.clickable { cursor: pointer; }

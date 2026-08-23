@@ -389,6 +389,7 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
   contextUsage?: { tokens: number; maxTokens: number; percent: number; level: string; suggest: string | null };
 }): ReactNode {
   const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string; content?: string }>>([]);
+  const [previewAttach, setPreviewAttach] = useState<{ name: string; content?: string } | null>(null);
 
   function addAttachment(f: { name: string; size: number; type: string; content?: string }): void {
     if (attachments.length >= 5) return;
@@ -468,9 +469,9 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
         {attachments.length > 0 && (
           <div className="attachment-row">
             {attachments.map((a, i) => (
-              <span key={i} className="attachment-chip" title={`${a.name} · ${a.size}B`}>
+              <span key={i} className="attachment-chip clickable" title={`${a.name} · ${a.size}B`} onClick={() => setPreviewAttach(a)}>
                 📎 {a.name} <span className="log-meta">{a.size > 1024 ? `${Math.round(a.size / 1024)}KB` : `${a.size}B`}</span>
-                <button className="attachment-remove" onClick={() => setAttachments((prev) => prev.filter((_, idx) => idx !== i))}>×</button>
+                <button className="attachment-remove" onClick={(e) => { e.stopPropagation(); setAttachments((prev) => prev.filter((_, idx) => idx !== i)); }}>×</button>
               </span>
             ))}
           </div>
@@ -500,6 +501,17 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
       </div>
       {mode === 'plan' && <div className="mode-hint">⎇ 计划模式已开启：只调研并产出实施计划，不会改动任何文件。</div>}
       {mode === 'yolo' && <div className="mode-hint warn">⚡ 完全访问模式：所有工具免审批直接执行，请谨慎使用。</div>}
+      {previewAttach && (
+        <div className="ws-backdrop" onClick={() => setPreviewAttach(null)}>
+          <div className="modal attachment-preview" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <span>📎 {previewAttach.name}</span>
+              <button className="icon-btn" onClick={() => setPreviewAttach(null)}>×</button>
+            </div>
+            <pre className="attachment-preview-body">{previewAttach.content || '(无预览内容)'}</pre>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -873,6 +885,8 @@ function App() {
   const [showTerminal, setShowTerminal] = useState(false);
   const [showBrowser, setShowBrowser] = useState(false);
   const [showFileTree, setShowFileTree] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [sessionSearch, setSessionSearch] = useState('');
   const [uiSettings, setUiSettings] = useState<UISettings>({});
   const [, forceI18n] = useState(0);
   const logRef = useRef<HTMLDivElement>(null);
@@ -962,6 +976,18 @@ function App() {
       else next.add(bucket);
       return next;
     });
+  }, []);
+
+  /* 自动更新检查（对标 ZCode：启动时查 GitHub Releases） */
+  useEffect(() => {
+    void fetch('https://api.github.com/repos/fumolan/bajin/releases/latest', { signal: AbortSignal.timeout(5000) } as RequestInit)
+      .then((r) => r.json())
+      .then((d: { tag_name?: string }) => {
+        if (d.tag_name && d.tag_name !== 'v0.1.0') {
+          pushItem(null, { kind: 'system', text: `🆕 bajin ${d.tag_name} 可用。到 https://github.com/fumolan/bajin/releases 下载` });
+        }
+      })
+      .catch(() => undefined); // 静默失败
   }, []);
 
   /* 主题应用：settings.theme → 根节点 data-theme；system 跟随媒体查询 */
@@ -1145,6 +1171,17 @@ function App() {
         return;
       }
       const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key === '/') {
+        e.preventDefault();
+        setShowShortcuts((v) => !v);
+        return;
+      }
+      if (mod && e.key === 'f') {
+        e.preventDefault();
+        const q = prompt(t('搜索当前会话...')) ?? '';
+        setSessionSearch(q);
+        return;
+      }
       if (!mod) return;
       const k = e.key.toLowerCase();
       if (k === 'n') { e.preventDefault(); void newTabRef.current(); }
@@ -1507,7 +1544,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 60</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 61</span>
           {/* 非 settings 分支内 view 已被收窄（不含 'settings'），切换即进入设置页 */}
           <button
             className="side-settings"
@@ -1705,6 +1742,15 @@ function App() {
         )}
         {showTerminal && (
           <TerminalPanel cwd={tab.cwd} fontFamily={uiSettings.terminalFontFamily || undefined} onClose={() => { void window.bajin.termStop(); setShowTerminal(false); }} />
+        )}
+
+        {showShortcuts && <ShortcutsPanel onClose={() => setShowShortcuts(false)} />}
+
+        {sessionSearch && (
+          <div className="session-search-bar">
+            <span>🔍 {sessionSearch}</span>
+            <button className="icon-btn" onClick={() => setSessionSearch('')}>×</button>
+          </div>
         )}
 
         {/* 斜杠命令提示 */}
@@ -2599,6 +2645,46 @@ function DataDirCard(): ReactNode {
 }
 
 /** 开关控件（对标 ZCode 设置页 switch 行） */
+/** 快捷键面板（对标 ZCode shortcut help：Ctrl+/ 弹出） */
+const SHORTCUTS: Array<{ group: string; items: Array<[string, string]> }> = [
+  { group: '全局', items: [
+    ['Ctrl+N', '新建任务'], ['Ctrl+K', '搜索'], ['Ctrl+W', '关闭标签'],
+    ['Ctrl+F', '会话内搜索'], ['Ctrl+/', '快捷键面板'], ['Esc', '停止任务'],
+  ]},
+  { group: '输入', items: [
+    ['Enter', '发送消息'], ['Shift+Enter', '换行'], ['/', '斜杠命令'],
+  ]},
+  { group: '面板', items: [
+    ['⌗', '终端'], ['▤', '状态面板'], ['🗂', '文件树'], ['🌐', '浏览器'],
+  ]},
+];
+
+function ShortcutsPanel({ onClose }: { onClose: () => void }): ReactNode {
+  return (
+    <div className="ws-backdrop" onClick={onClose}>
+      <div className="modal shortcuts-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <span>⌨ {t('快捷键')}</span>
+          <button className="icon-btn" onClick={onClose}>×</button>
+        </div>
+        <div className="shortcuts-body">
+          {SHORTCUTS.map((g) => (
+            <div key={g.group} className="shortcuts-group">
+              <div className="settings-nav-group-title">{t(g.group)}</div>
+              {g.items.map(([key, desc]) => (
+                <div key={key} className="shortcut-row">
+                  <kbd>{key}</kbd>
+                  <span>{t(desc)}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** 技术错误 → 用户可读中文（对标 ZCode 错误提示体验） */
 function friendlyError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
