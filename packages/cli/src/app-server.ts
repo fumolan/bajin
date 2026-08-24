@@ -1,4 +1,7 @@
 import * as readline from 'node:readline';
+import { execFile as ef, execSync } from 'node:child_process';
+import * as osMod from 'node:os';
+import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
 import {
@@ -608,7 +611,6 @@ export class AppServer {
 
   /** Git 状态（对标 ZCode git integration）：分支+脏文件+最近提交+diff 摘要 */
   private async gitStatus(): Promise<Record<string, unknown>> {
-    const { execFile: ef } = require('node:child_process') as typeof import('node:child_process');
     const exec = (cmd: string, args: string[]): Promise<string> =>
       new Promise((resolve) => {
         ef(cmd, args, { cwd: this.cwd, timeout: 5000 }, (err: Error | null, stdout: string) => {
@@ -647,7 +649,6 @@ export class AppServer {
 
   /** 系统进程监控（对标 ZCode process-monitor）：/proc 读取 top N 进程 + CPU/内存概要 */
   private sysProc(): Record<string, unknown> {
-    const osMod = require('node:os') as typeof import('node:os');
     const totalMem = osMod.totalmem();
     const freeMem = osMod.freemem();
     const loadAvg = osMod.loadavg();
@@ -656,7 +657,7 @@ export class AppServer {
     // Linux: 读 /proc/stat 取 CPU 使用率
     let cpuPercent = 0;
     try {
-      const stat = require('node:fs').readFileSync('/proc/stat', 'utf8').split('\n')[0] ?? '';
+      const stat = readFileSync('/proc/stat', 'utf8').split('\n')[0] ?? '';
       const parts = stat.split(/\s+/).map(Number);
       const idle = parts[4] ?? 0;
       const total = parts.slice(1).reduce((a: number, b: number) => a + b, 0);
@@ -666,8 +667,7 @@ export class AppServer {
     // 读 top 进程（简化：只取 agent 自身 + 系统 node 进程）
     const procs: Array<Record<string, unknown>> = [];
     try {
-      const { execSync } = require('node:child_process') as typeof import('node:child_process');
-      const out = execSync('ps aux --sort=-%mem | head -15', { encoding: 'utf8', timeout: 3000 });
+        const out = execSync('ps aux --sort=-%mem | head -15', { encoding: 'utf8', timeout: 3000 });
       for (const line of out.split('\n').slice(1)) {
         const cols = line.trim().split(/\s+/);
         if (cols.length < 11) continue;

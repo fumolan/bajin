@@ -2200,14 +2200,20 @@ function GitPanel({ status, onClose, onRefresh }: { status: { branch: string; st
 function BrowserPanel({ onClose }: { onClose: () => void }): ReactNode {
   const [url, setUrl] = useState('');
   const [loaded, setLoaded] = useState('');
+  // Electron 环境（有 process.versions.electron）用 <webview>；浏览器用 <iframe>
+  const isElectron = typeof process !== 'undefined' && process.versions?.electron;
   const webviewRef = useRef<Electron.WebviewTag>(null);
   useEffect(() => {
     const off = window.bajin.onBrowserNavigate((u) => setUrl(u));
     return off;
   }, []);
   useEffect(() => {
-    if (url && webviewRef.current) void webviewRef.current.loadURL(url).then(() => setLoaded(url)).catch(() => undefined);
-  }, [url]);
+    if (url && isElectron && webviewRef.current?.loadURL) {
+      void webviewRef.current.loadURL(url).then(() => setLoaded(url)).catch(() => undefined);
+    } else if (url) {
+      setLoaded(url); // 浏览器模式：iframe src 直接生效
+    }
+  }, [url, isElectron]);
   return (
     <div className="browser-panel">
       <div className="browser-head">
@@ -2216,7 +2222,11 @@ function BrowserPanel({ onClose }: { onClose: () => void }): ReactNode {
           onKeyDown={(e) => { if (e.key === 'Enter' && url.trim()) setUrl(url.trim()); }} />
         <button className="icon-btn" onClick={onClose}>×</button>
       </div>
-      <webview ref={webviewRef} className="browser-view" src={url || 'about:blank'} allowpopups={true} />
+      {isElectron ? (
+        <webview ref={webviewRef} className="browser-view" src={url || 'about:blank'} allowpopups={true} />
+      ) : (
+        <iframe className="browser-view" src={url || 'about:blank'} sandbox="allow-scripts allow-same-origin allow-forms" title="browser" />
+      )}
     </div>
   );
 }
