@@ -21,7 +21,8 @@ esac
 case "$PLATFORM" in
   win)   INSTALLER_OUT="$ROOT/apps/desktop/release/bajin-${VERSION}-win-x64.exe"
          PACKAGED_CJS="$ROOT/apps/desktop/release/win-unpacked/resources/bajin/bajin.cjs" ;;
-  *)     INSTALLER_OUT="$ROOT/apps/desktop/release/bajin-${VERSION}-linux-x64.AppImage"
+  *)     # electron-builder 默认产物名用 x86_64（非 x64），stat 名字对不上会让 OUT_MB 算术报错
+         INSTALLER_OUT="$ROOT/apps/desktop/release/bajin-${VERSION}-linux-x86_64.AppImage"
          PACKAGED_CJS="$ROOT/apps/desktop/release/linux-unpacked/resources/bajin/bajin.cjs" ;;
 esac
 BUNDLED_CJS="$ROOT/packages/cli/dist/bundle/bajin.cjs"
@@ -48,8 +49,10 @@ cd "$ROOT"
 # ── 0. 夜间成果速览（GAP-TRACKER 运行日志尾部） ─────────────────────────
 step "夜间运行成果（GAP-TRACKER 运行日志最近 $LOG_LINES 条）"
 if [[ -f GAP-TRACKER.md ]]; then
+  # || true：--log 0 时 tail -n 0 立即退出会让上游 awk 收到 SIGPIPE(141)，
+  # pipefail+set -e 会把整个打包杀掉 —— 横幅是装饰性输出，绝不能致命
   awk '/^## 运行日志/{flag=1; next} flag && /^\|/' GAP-TRACKER.md | tail -n "$LOG_LINES" \
-    | awk -F'|' '{ gsub(/^ +| +$/, "", $2); gsub(/^ +| +$/, "", $3); if ($2 != "" && $2 != "时间" && $2 != "---") printf "  %s │ %s\n", $2, substr($3, 1, 90) }'
+    | awk -F'|' '{ gsub(/^ +| +$/, "", $2); gsub(/^ +| +$/, "", $3); if ($2 != "" && $2 != "时间" && $2 != "---") printf "  %s │ %s\n", $2, substr($3, 1, 90) }' || true
   note "完整账本: $ROOT/GAP-TRACKER.md"
 else
   note "未找到 GAP-TRACKER.md"
@@ -128,7 +131,7 @@ else
       preextract_wincodesign
       eb_win || { fail "NSIS 打包失败"; tail -20 /tmp/bajin-installer.log; exit 1; }
     fi
-    OUT_MB=$(( $(stat -c%s "$INSTALLER_OUT") / 1024 / 1024 ))
+    OUT_MB=$(( $(stat -c%s "$INSTALLER_OUT" 2>/dev/null || echo 0) / 1024 / 1024 ))
     ok "安装包生成：${OUT_MB} MB"
   else
     step "打包 AppImage（electron-builder）"
@@ -137,7 +140,7 @@ else
       ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ \
       pnpm exec electron-builder --linux AppImage > /tmp/bajin-installer.log 2>&1 ) \
       || { fail "AppImage 打包失败"; tail -20 /tmp/bajin-installer.log; exit 1; }
-    OUT_MB=$(( $(stat -c%s "$INSTALLER_OUT") / 1024 / 1024 ))
+    OUT_MB=$(( $(stat -c%s "$INSTALLER_OUT" 2>/dev/null || echo 0) / 1024 / 1024 ))
     ok "AppImage 生成：${OUT_MB} MB"
   fi
 fi

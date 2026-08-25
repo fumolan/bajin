@@ -635,10 +635,16 @@ export class Agent implements PlanModeHost {
     if (this.rolloutPath) {
       void fs.appendFile(this.rolloutPath, `${JSON.stringify({ ts: new Date().toISOString(), dir: 'request', model: req.model, messages: req.messages })}\n`).catch(() => undefined);
     }
+    let streamedText = false;
     const res = await this.opts.provider.chat(req, (event) => {
-      if (event.type === 'text-delta') this.callbacks.onText?.(event.delta);
+      if (event.type === 'text-delta') { streamedText = true; this.callbacks.onText?.(event.delta); }
       else if (event.type === 'reasoning-delta') this.callbacks.onReasoning?.(event.delta);
     });
+    // 非流式 provider（如 mock echo）整段返回、从不回调 text-delta——补发一次合成事件，
+    // 否则 UI 的 assistant 气泡永远空着（Electron 与 Web 渲染都依赖 text-delta 填充）
+    if (!streamedText && res.message.role === 'assistant' && res.message.content) {
+      this.callbacks.onText?.(res.message.content);
+    }
     if (this.rolloutPath) {
       void fs.appendFile(this.rolloutPath, `${JSON.stringify({ ts: new Date().toISOString(), dir: 'response', ms: Date.now() - started, message: res.message, usage: res.usage, finishReason: res.finishReason })}\n`).catch(() => undefined);
     }

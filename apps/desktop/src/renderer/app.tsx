@@ -375,7 +375,7 @@ function ModeMenu({ mode, onPick }: { mode: string; onPick: (m: string) => void 
 /** 统一输入框（欢迎页与会话页共用，对标 ZCode chat-composer-input-surface：rounded-2xl 单卡片） */
 function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPickWorkspace, mode, onModeChange, model, onModelClick, placeholder, centered, contextUsage }: {
   input: string;
-  setInput: (v: string) => void;
+  setInput: (v: string | ((prev: string) => string)) => void;
   onSend: () => void;
   onStop?: () => void;
   busy: boolean;
@@ -1152,23 +1152,35 @@ function App() {
         case 'compact-queued':
           pushItem(sid ?? null, { kind: 'system', text: '⏳ 压缩已排队，任务完成后自动执行' });
           break;
-        case 'done':
-          patchTab(sid ?? null, (t) => ({
-            ...t,
-            busy: false,
-            approval: null,
-            ask: null,
-            tokens: Number(p['tokens'] ?? t.tokens),
-            contextUsage: (p['contextUsage'] as Tab['contextUsage']) ?? t.contextUsage,
-            items: p['cancelled']
-              ? [...t.items, { kind: 'system', text: '⏹ 任务已被用户中断' } as Item]
-              : t.items,
-          }));
+        case 'done': {
+          const doneText = typeof p['text'] === 'string' ? (p['text'] as string) : '';
+          patchTab(sid ?? null, (t) => {
+            // 兜底：若整轮没收到任何 text-delta（非流式 provider），最后一个空 assistant 气泡用 done.text 补上
+            let items = t.items;
+            if (doneText && !p['cancelled']) {
+              const last = items[items.length - 1];
+              if (last && last.kind === 'assistant' && !(last as { text: string }).text) {
+                items = [...items.slice(0, -1), { kind: 'assistant', text: doneText } as Item];
+              }
+            }
+            return {
+              ...t,
+              busy: false,
+              approval: null,
+              ask: null,
+              tokens: Number(p['tokens'] ?? t.tokens),
+              contextUsage: (p['contextUsage'] as Tab['contextUsage']) ?? t.contextUsage,
+              items: p['cancelled']
+                ? [...items, { kind: 'system', text: '⏹ 任务已被用户中断' } as Item]
+                : items,
+            };
+          });
           if (uiSettingsRef.current.notificationEnabled) {
             void window.bajin.notify('bajin 任务完成', p['cancelled'] ? '任务已被中断' : '任务执行完毕，回来查看结果吧').catch(() => undefined);
           }
           if (uiSettingsRef.current.notificationSoundEnabled) playDoneChime();
           break;
+        }
         case 'agent-error':
           patchTab(sid ?? null, (t) => ({
             ...t,
@@ -1282,7 +1294,7 @@ function App() {
     try {
       await window.bajin.rpc('send', { sessionId: tab.sessionId, text });
     } catch (err) {
-      patchTab(tab.sessionId, (t) => ({ ...t, busy: false, items: [...t.items, { kind: 'system', text: `⚠ ${t('发送失败')}: ${friendlyError(err)}` } as Item] }));
+      patchTab(tab.sessionId, (tb) => ({ ...tb, busy: false, items: [...tb.items, { kind: 'system', text: `⚠ ${t('发送失败')}: ${friendlyError(err)}` } as Item] }));
     }
     void refreshHistory();
   }
@@ -1566,7 +1578,7 @@ function App() {
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 61</span>
+          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 62</span>
           {/* 非 settings 分支内 view 已被收窄（不含 'settings'），切换即进入设置页 */}
           <button
             className="side-settings"
@@ -1613,6 +1625,11 @@ function App() {
             title="终端（在当前工作目录打开 bash）"
             onClick={() => { setShowTerminal((v) => !v); }}
           >⌗</button>
+          <button
+            className={`icon-only ${showProcMonitor ? 'on' : ''}`}
+            title="系统监控（CPU / 内存 / 进程）"
+            onClick={() => { setShowProcMonitor((v) => !v); }}
+          >📈</button>
           <button
             className={`icon-only ${showPanel ? 'on' : ''}`}
             title="切换右侧状态面板（目标 / 计划 / 进程）"
@@ -2097,23 +2114,35 @@ function FileTreePanel({ cwd, onPick }: { cwd?: string; onPick: (file: string) =
   );
 }
 
+/** Web Speech API 最小接口（浏览器原生，无官方类型定义） */
+interface SpeechRecognitionLike {
+  lang: string;
+  continuous: boolean;
+  start(): void;
+  stop(): void;
+  onresult: unknown;
+  onend: unknown;
+  onerror: unknown;
+}
+
 function VoiceButton({ onText }: { onText: (t: string) => void }): ReactNode {
   const [on, setOn] = useState(false);
   const ref = useRef<{ stop: () => void } | null>(null);
   function toggle(): void {
     if (on) { ref.current?.stop(); setOn(false); return; }
-    const W = window as unknown as { SpeechRecognition?: new () => never; webkitSpeechRecognition?: new () => never };
+    const W = window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike };
     const Ctor = W.SpeechRecognition ?? W.webkitSpeechRecognition;
     if (!Ctor) return;
     const rec = new Ctor();
-    (rec as unknown as { lang: string }).lang = 'zh-CN';
-    (rec as unknown as { continuous: boolean }).continuous = true;
-    (rec as unknown as { onresult: unknown }).onresult = (e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => {
+    rec.lang = 'zh-CN';
+    rec.continuous = true;
+    rec.onresult = (e: { resultIndex: number; results: ArrayLike<ArrayLike<{ transcript: string }>> }) => {
       for (let i = e.resultIndex; i < e.results.length; i++) onText(e.results[i]![0]!.transcript);
     };
-    (rec as unknown as { onend: unknown }).onend = () => setOn(false);
+    rec.onend = () => setOn(false);
+    rec.onerror = () => setOn(false);
     rec.start();
-    ref.current = rec as unknown as { stop: () => void };
+    ref.current = rec;
     setOn(true);
   }
   return <button className={`voice-btn ${on ? 'on' : ''}`} onClick={toggle} title={on ? '停止' : '🎤'}>{on ? '🔴' : '🎤'}</button>;
@@ -2160,6 +2189,58 @@ function GitChip({ status, onToggle, expanded }: { status: { isRepo: boolean; br
     <button className={`git-chip ${expanded ? 'on' : ''}`} onClick={onToggle} title={`${status.branch} · ${status.dirtyCount} 变更`}>
       ⎇ {status.branch}{status.dirtyCount > 0 && <span className="git-dirty">{status.dirtyCount}</span>}
     </button>
+  );
+}
+
+/** 系统监控面板（对标 ZCode process-monitor）：CPU/内存/负载概览 + top 进程表，2s 轮询 */
+function ProcessMonitorPanel({ onClose }: { onClose: () => void }): ReactNode {
+  const [info, setInfo] = useState<{
+    cpuPercent: number; memPercent: number; totalMem: number; freeMem: number;
+    loadAvg: number[]; uptimeSeconds: number;
+    agentMemoryMB: number; agentHeapMB: number;
+    processes: Array<{ user: string; pid: number; cpu: number; mem: number; rss: number; command: string }>;
+  } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const tick = async (): Promise<void> => {
+      try {
+        const r = await window.bajin.rpc('sys/proc', {});
+        if (alive && r && typeof r === 'object') setInfo(r as typeof info);
+      } catch { /* app-server 不在时静默 */ }
+    };
+    void tick();
+    const timer = setInterval(() => void tick(), 2000);
+    return () => { alive = false; clearInterval(timer); };
+  }, []);
+
+  const fmtGB = (bytes: number): string => `${(bytes / 1024 / 1024 / 1024).toFixed(1)}G`;
+  const fmtUp = (s: number): string => s > 86400 ? `${Math.floor(s / 86400)}d${Math.floor((s % 86400) / 3600)}h` : s > 3600 ? `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m` : `${Math.floor(s / 60)}m`;
+
+  return (
+    <div className="proc-monitor">
+      <div className="ft-head">
+        <span className="ft-title">📈 系统监控</span>
+        <span className="log-meta">{info ? `agent ${info.agentMemoryMB}MB · heap ${info.agentHeapMB}MB` : '…'}</span>
+        <span style={{ flex: 1 }} />
+        <button className="icon-btn" onClick={onClose}>×</button>
+      </div>
+      <div className="proc-summary">
+        <span className="proc-stat"><span className="proc-label">CPU</span><span className="proc-value">{info ? `${info.cpuPercent}%` : '—'}</span></span>
+        <span className="proc-stat"><span className="proc-label">内存</span><span className="proc-value">{info ? `${info.memPercent}%` : '—'}</span></span>
+        <span className="proc-stat"><span className="proc-label">可用</span><span className="proc-value">{info ? fmtGB(info.freeMem) : '—'}</span></span>
+        <span className="proc-stat"><span className="proc-label">负载</span><span className="proc-value">{info ? info.loadAvg.map((l) => l.toFixed(2)).join(' ') : '—'}</span></span>
+        <span className="proc-stat"><span className="proc-label">运行</span><span className="proc-value">{info ? fmtUp(info.uptimeSeconds) : '—'}</span></span>
+      </div>
+      <div className="proc-table">
+        <div className="proc-table-head"><span>PID</span><span>USER</span><span>CPU%</span><span>MEM%</span><span>COMMAND</span></div>
+        {(info?.processes ?? []).map((p) => (
+          <div key={p.pid} className="proc-table-row">
+            <span>{p.pid}</span><span>{p.user}</span><span>{p.cpu}</span><span>{p.mem}</span><span className="proc-cmd" title={p.command}>{p.command}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -2383,7 +2464,7 @@ const SUGGESTIONS = [
 function WelcomePage({ onPickTemplate, input, setInput, onSend, busy, cwd, onPickWorkspace, mode, onModeChange, model, onModelClick }: {
   onPickTemplate: (prompt: string) => void;
   input: string;
-  setInput: (v: string) => void;
+  setInput: (v: string | ((prev: string) => string)) => void;
   onSend: () => void;
   busy: boolean;
   cwd?: string;
