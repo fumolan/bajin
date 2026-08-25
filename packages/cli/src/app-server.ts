@@ -220,6 +220,8 @@ export class AppServer {
           return respond(await this.configChain());
         case 'fs/write':
           return respond(await this.fsWrite(p as unknown as { path: string; content: string }));
+        case 'fs/read':
+          return respond(await this.fsRead(p as unknown as { path: string }));
         case 'git/status':
           return respond(await this.gitStatus());
         case 'sys/proc':
@@ -607,6 +609,28 @@ export class AppServer {
     if (!p.path?.startsWith('/')) throw new Error('需要绝对路径');
     await fs.writeFile(p.path, p.content, 'utf8');
     return { written: p.path, bytes: Buffer.byteLength(p.content) };
+  }
+
+  /** 编辑器读文件：≤2MB 文本，超出截断（编辑器场景足够，避免巨型文件拖垮 IPC） */
+  private async fsRead(p: { path: string }): Promise<Record<string, unknown>> {
+    if (!p.path?.startsWith('/')) throw new Error('需要绝对路径');
+    const stat = await fs.stat(p.path).catch(() => null);
+    if (!stat?.isFile()) throw new Error(`不是文件: ${p.path}`);
+    const MAX = 2 * 1024 * 1024;
+    const fh = await fs.open(p.path, 'r');
+    try {
+      const len = Math.min(stat.size, MAX);
+      const buf = Buffer.alloc(len);
+      await fh.read(buf, 0, len, 0);
+      return {
+        path: p.path,
+        content: buf.toString('utf8'),
+        bytes: stat.size,
+        truncated: stat.size > MAX,
+      };
+    } finally {
+      await fh.close();
+    }
   }
 
   /** Git 状态（对标 ZCode git integration）：分支+脏文件+最近提交+diff 摘要 */

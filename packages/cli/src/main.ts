@@ -93,15 +93,20 @@ function main(): void {
       return;
     }
 
-    // 子命令：bajin export <sessionId> [--out file] —— 导出会话为 Markdown
+    // 子命令：bajin export <sessionId> [--format md|html] [--out file] —— 导出会话
     if (process.argv[2] === 'export') {
       const sid = process.argv[3];
       if (!sid) {
-        console.error('用法: bajin export <sessionId> [--out <file.md>]');
+        console.error('用法: bajin export <sessionId> [--format md|html] [--out <file>]');
         process.exit(1);
       }
-      const outFlag = process.argv[4] === '--out' ? process.argv[5] : undefined;
-      const { loadTranscript, exportSessionMarkdown } = await import('@bajin/core');
+      const flagVal = (name: string): string | undefined => {
+        const i = process.argv.indexOf(name);
+        return i >= 0 ? process.argv[i + 1] : undefined;
+      };
+      const format = flagVal('--format') === 'html' ? 'html' : 'md';
+      const outFlag = flagVal('--out');
+      const { loadTranscript, exportSessionMarkdown, exportSessionHtml } = await import('@bajin/core');
       const sessions = await listSessions(PERSIST_DIR, 200);
       const hit = sessions.find((s) => s.sessionId.startsWith(sid));
       if (!hit) {
@@ -109,11 +114,13 @@ function main(): void {
         process.exit(1);
       }
       const { messages, meta } = await loadTranscript(hit.transcriptPath);
-      const md = exportSessionMarkdown(messages, { ...meta, sessionId: hit.sessionId });
-      const out = outFlag ?? `${hit.sessionId}.md`;
+      const text = format === 'html'
+        ? exportSessionHtml(messages, { ...meta, sessionId: hit.sessionId })
+        : exportSessionMarkdown(messages, { ...meta, sessionId: hit.sessionId });
+      const out = outFlag ?? `${hit.sessionId}.${format}`;
       const { writeFileSync } = await import('node:fs');
-      writeFileSync(out, md, 'utf8');
-      console.log(`已导出 ${messages.length} 条消息到 ${out}`);
+      writeFileSync(out, text, 'utf8');
+      console.log(`已导出 ${messages.length} 条消息到 ${out}（${format.toUpperCase()}）`);
       return;
     }
 

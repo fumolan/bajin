@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { exportSessionMarkdown } from '../src/session-export.js';
+import { exportSessionMarkdown, exportSessionHtml } from '../src/session-export.js';
 import type { ChatMessage } from '@bajin/shared';
 
 const msgs: ChatMessage[] = [
@@ -48,5 +48,25 @@ describe('会话导出 Markdown', () => {
     expect(md).not.toContain('<details>');
     expect(md).toContain('hi');
     expect(md).toContain('hello');
+  });
+});
+
+describe('会话导出 HTML', () => {
+  it('独立页面：DOCTYPE/内嵌样式/消息块/工具折叠/XSS 转义', () => {
+    const html = exportSessionHtml(msgs, { title: '测试会话<script>', model: 'glm-4.7', sessionId: 'sess_test', tokens: 1234 });
+    expect(html).toContain('<!DOCTYPE html>');
+    expect(html).toContain('<style>');           // 样式内嵌，独立可打开
+    expect(html).toContain('class="msg user"');
+    expect(html).toContain('class="msg assistant"');
+    expect(html).toContain('🔧 工具调用（1）');   // 工具调用折叠
+    expect(html).toContain('Write');
+    expect(html).not.toContain('<script>');       // 标题中的脚本被转义
+    expect(html).toContain('&lt;script&gt;');
+  });
+
+  it('空会话只出页头页脚', () => {
+    const html = exportSessionHtml([], { title: '空' });
+    expect(html).toContain('<h1>空</h1>');
+    expect(html).not.toContain('class="msg');
   });
 });

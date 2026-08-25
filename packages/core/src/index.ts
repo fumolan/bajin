@@ -18,7 +18,7 @@ export { discoverSkills, parseFrontmatter, BUILTIN_SKILLS, seedBuiltinSkills } f
 export type { DiscoveredSkill } from './skills.js';
 export { discoverSubagents } from './subagents.js';
 export { discoverPlugins, togglePlugin, installPlugin, pluginsRoot, pluginSkillDirs, pluginCommandDirs } from './plugins.js';
-export { exportSessionMarkdown } from './session-export.js';
+export { exportSessionMarkdown, exportSessionHtml } from './session-export.js';
 export type { PluginManifest, DiscoveredPlugin } from './plugins.js';
 export type { SubagentDef } from './subagents.js';
 export { readMemories, saveMemory, clearMemories, memoryPromptBlock, createMemoryTool, memoryFilePath } from './memory.js';

@@ -12,30 +12,30 @@
 ## 代码编辑器
 
 - [x] **内联编辑器**（2026-08-23 完成）：文件树点击→textarea+Ctrl+S保存：双击文件树文件打开编辑面板（textarea + 行号 + 保存触发 Edit 工具）
-- [ ] **编辑器语法着色**：TypeScript/JSON/Markdown 关键字高亮（overlay 方案，不引 CodeMirror）
-- [ ] **文件保存对比**：保存前显示 diff（原 vs 修改），确认后写入
+- [x] **编辑器语法着色**（2026-08-25 完成）：highlight.ts 零依赖分词器（TS/JSON/MD）+ textarea 透明文字 overlay 同步滚动：TypeScript/JSON/Markdown 关键字高亮（overlay 方案，不引 CodeMirror）
+- [x] **文件保存对比**（2026-08-25 完成）：Ctrl+S 先出 LCS 行级 diff 面板（红删绿增+变更计数），确认后才落盘：保存前显示 diff（原 vs 修改），确认后写入
 
 ## 多模态
 
-- [ ] **图片输入**：粘贴/拖放图片时读取为 base64，发送时附模型 vision prompt（GLM-4V 支持）
-- [ ] **图片预览**：附件 chip 中的图片显示缩略图（canvas 压缩）
+- [x] **图片输入**（2026-08-25 完成）：粘贴/拖放图片 canvas 压缩（≤1024px JPEG base64）随附件块发送（GLM-4V 可视）：粘贴/拖放图片时读取为 base64，发送时附模型 vision prompt（GLM-4V 支持）
+- [x] **图片预览**（2026-08-25 完成）：附件 chip 内嵌 96px canvas 缩略图：附件 chip 中的图片显示缩略图（canvas 压缩）
 
 ## 语音输入
 
-- [ ] **Web Speech API**：Composer 加🎤按钮，按住说话转文字（Chrome 原生支持，Web 模式可用）
-- [ ] **语音快捷键**：Ctrl+M 开始/停止录音
+- [x] **Web Speech API**（2026-08-23 完成）：Composer 🎤 按钮，Chrome 原生语音转文字：Composer 加🎤按钮，按住说话转文字（Chrome 原生支持，Web 模式可用）
+- [x] **语音快捷键**（2026-08-25 完成）：Ctrl+M 全局开/停录音（bajin:voice-toggle 事件桥）：Ctrl+M 开始/停止录音
 
 ## 会话增强
 
 - [x] **消息分叉**（2026-08-23 完成）：右键→从此分叉：右键任意消息 →「从此分叉」创建新标签（复用 fork 逻辑）
 - [x] **草稿自动保存**（2026-08-23 完成）：localStorage：输入中内容存 localStorage，刷新/切标签不丢失
-- [ ] **通知中心**：右下角 🔔 图标 + 弹出历史通知列表（approval/完成/错误）
-- [ ] **全局搜索增强**：Ctrl+K 搜索结果高亮匹配文本片段（当前只显示标题）
+- [x] **通知中心**（2026-08-25 完成）：右下角 🔔+未读角标，approval/完成/错误 全量留档（50 条）：右下角 🔔 图标 + 弹出历史通知列表（approval/完成/错误）
+- [x] **全局搜索增强**（2026-08-25 完成）：Ctrl+K 结果标题+片段内匹配词 <mark> 高亮：Ctrl+K 搜索结果高亮匹配文本片段（当前只显示标题）
 
 ## 导出与分享
 
-- [ ] **导出 HTML**：bajin export --format html（带样式的独立页面，可直接分享）
-- [ ] **分享链接**：生成短链（粘贴到剪贴板，打开跳转到 session）
+- [x] **导出 HTML**（2026-08-25 完成）：exportSessionHtml 独立深色页面（内嵌样式+工具折叠+XSS 转义），CLI --format html：bajin export --format html（带样式的独立页面，可直接分享）
+- [x] **分享链接**（2026-08-25 完成）：状态面板「🔗 复制分享链接」，web 为 ?session= 直达、桌面为 bajin:// 深链，启动自动恢复：生成短链（粘贴到剪贴板，打开跳转到 session）
 
 ---
 *生成时间：2026-08-23 21:44 | 目标：12 项*

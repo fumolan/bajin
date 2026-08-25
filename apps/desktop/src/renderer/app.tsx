@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom';
 import { terminalShellOptions } from '@bajin/shared/platform/shell-options';
 import { renderMarkdown } from './markdown.js';
+import { highlightCode, langFromPath } from './highlight.js';
 
 /* ---------- 类型 ---------- */
 
@@ -390,17 +391,50 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
   centered?: boolean;
   contextUsage?: { tokens: number; maxTokens: number; percent: number; level: string; suggest: string | null };
 }): ReactNode {
-  const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string; content?: string }>>([]);
+  const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string; content?: string; image?: string; thumb?: string }>>([]);
   const [previewAttach, setPreviewAttach] = useState<{ name: string; content?: string } | null>(null);
 
-  function addAttachment(f: { name: string; size: number; type: string; content?: string }): void {
+  function addAttachment(f: { name: string; size: number; type: string; content?: string; image?: string; thumb?: string }): void {
     if (attachments.length >= 5) return;
     setAttachments((prev) => [...prev, f]);
   }
 
-  /** 读取文件内容：文本 ≤20KB 全读，大文件截取前 2k 字符，图片只留元数据 */
-  function readFileContent(file: File, callback: (content: string) => void): void {
+  /** 图片 → canvas 压缩：发送图（≤1024px 长边）+ 缩略图（≤96px），JPEG 质量 0.8 */
+  function readImageAttachment(file: File, callback: (r: { image: string; thumb: string }) => void): void {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const shrink = (max: number, quality: number): string => {
+          const scale = Math.min(1, max / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return '';
+          ctx.drawImage(img, 0, 0, w, h);
+          return canvas.toDataURL('image/jpeg', quality);
+        };
+        callback({ image: shrink(1024, 0.8), thumb: shrink(96, 0.6) });
+      };
+      img.onerror = () => callback({ image: '', thumb: '' });
+      img.src = String(reader.result ?? '');
+    };
+    reader.onerror = () => callback({ image: '', thumb: '' });
+    reader.readAsDataURL(file);
+  }
+
+  /** 读取文件内容：文本 ≤20KB 全读，大文件截取前 2k 字符，图片压缩为 base64 供 vision 输入 */
+  function readFileContent(file: File, callback: (content: string) => void, imageBack?: (r: { image: string; thumb: string }) => void): void {
     if (file.type.startsWith('image/')) {
+      if (imageBack) {
+        readImageAttachment(file, (r) => {
+          imageBack(r);
+          callback(r.image ? `[图片 ${file.name}]（base64 已附，模型可视觉理解）` : `[图片读取失败] ${file.name}`);
+        });
+        return;
+      }
       callback(`[图片] ${file.name} · ${file.type} · ${Math.round(file.size / 1024)}KB`);
       return;
     }
@@ -418,9 +452,9 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
     e.preventDefault();
     e.stopPropagation();
     for (const f of Array.from(e.dataTransfer.files)) {
-      readFileContent(f, (content) => {
-        addAttachment({ name: f.name, size: f.size, type: f.type || 'unknown', content });
-      });
+      readFileContent(f,
+        (content) => addAttachment({ name: f.name, size: f.size, type: f.type || 'unknown', content }),
+        (r) => setAttachments((prev) => (prev.length >= 5 ? prev : [...prev, { name: f.name, size: f.size, type: f.type || 'unknown', image: r.image, thumb: r.thumb }])));
     }
   }
 
@@ -438,9 +472,9 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
         const f = item.getAsFile();
         if (f) {
           e.preventDefault();
-          readFileContent(f, (content) => {
-            addAttachment({ name: f.name || 'clipboard', size: f.size, type: f.type || 'unknown', content });
-          });
+          readFileContent(f,
+            (content) => addAttachment({ name: f.name || 'clipboard', size: f.size, type: f.type || 'unknown', content }),
+            (r) => setAttachments((prev) => (prev.length >= 5 ? prev : [...prev, { name: f.name || 'clipboard.png', size: f.size, type: f.type || 'image/png', image: r.image, thumb: r.thumb }])));
         }
       }
     }
@@ -450,9 +484,10 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       if (!busy && !disabled) {
+        // 附件块：图片附 dataURL（vision 输入），文本附原文
         const attachText = attachments
-          .filter((a) => a.content)
-          .map((a) => `--- 附件: ${a.name} ---\n${a.content}\n--- 附件结束 ---`)
+          .filter((a) => a.content || a.image)
+          .map((a) => `--- 附件: ${a.name} ---\n${a.image ? `![${a.name}](${a.image})\n` : ''}${a.content ?? ''}\n--- 附件结束 ---`)
           .join('\n\n');
         if (attachText) {
           setInput((prev) => `${prev}\n\n${attachText}`);
@@ -472,7 +507,7 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
           <div className="attachment-row">
             {attachments.map((a, i) => (
               <span key={i} className="attachment-chip clickable" title={`${a.name} · ${a.size}B`} onClick={() => setPreviewAttach(a)}>
-                📎 {a.name} <span className="log-meta">{a.size > 1024 ? `${Math.round(a.size / 1024)}KB` : `${a.size}B`}</span>
+                {a.thumb ? <img className="attach-thumb" src={a.thumb} alt={a.name} /> : '📎'} {a.name} <span className="log-meta">{a.size > 1024 ? `${Math.round(a.size / 1024)}KB` : `${a.size}B`}</span>
                 <button className="attachment-remove" onClick={(e) => { e.stopPropagation(); setAttachments((prev) => prev.filter((_, idx) => idx !== i)); }}>×</button>
               </span>
             ))}
@@ -891,6 +926,13 @@ function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [sessionSearch, setSessionSearch] = useState('');
   const [showProcMonitor, setShowProcMonitor] = useState(false);
+  /* 通知中心（对标 ZCode 通知历史）：approval/完成/错误 全量留档，右下角 🔔 查看 */
+  const [notifications, setNotifications] = useState<Array<{ id: number; kind: 'approval' | 'done' | 'error' | 'info'; title: string; body: string; ts: number; read: boolean }>>([]);
+  const [showNotifCenter, setShowNotifCenter] = useState(false);
+  const notifSeqRef = useRef(0);
+  const pushNotif = useCallback((kind: 'approval' | 'done' | 'error' | 'info', title: string, body: string): void => {
+    setNotifications((prev) => [...prev.slice(-49), { id: ++notifSeqRef.current, kind, title, body, ts: Date.now(), read: false }]);
+  }, []);
   const [gitStatus, setGitStatus] = useState<{ isRepo: boolean; branch: string; dirtyCount: number; staged: number; unstaged: number; dirtyFiles: string[]; recentCommits: Array<{ hash: string; message: string }>; diffStat: string } | null>(null);
   const [showGitPanel, setShowGitPanel] = useState(false);
   const [editorFile, setEditorFile] = useState<string | null>(null);
@@ -1064,6 +1106,9 @@ function App() {
         if (boot.mock) {
           pushItem(sessionId, { kind: 'system', text: '未检测到任何 API Key（全局 BIGMODEL_API_KEY 或供应商 Key），已降级 mock 模式。到「设置 → 模型设置」给供应商配置 API Key 后重启即可使用真实模型。' });
         }
+        // 分享链接直达：?session=<id> 打开指定历史会话（web 模式链接分享）
+        const shared = new URLSearchParams(window.location.search).get('session');
+        if (shared) void openHistoryRef.current(shared);
         void refreshHistory();
         void refreshModels();
         void refreshProviders();
@@ -1138,6 +1183,7 @@ function App() {
             ...t,
             approval: { requestId: String(p['requestId']), name, summary: summarizeArgs(name, args), plan },
           }));
+          pushNotif('approval', '等待审批', `${name}: ${summarizeArgs(name, args)}`);
           break;
         }
         case 'ask-user':
@@ -1179,6 +1225,7 @@ function App() {
             void window.bajin.notify('bajin 任务完成', p['cancelled'] ? '任务已被中断' : '任务执行完毕，回来查看结果吧').catch(() => undefined);
           }
           if (uiSettingsRef.current.notificationSoundEnabled) playDoneChime();
+          pushNotif(p['cancelled'] ? 'info' : 'done', p['cancelled'] ? '任务已中断' : '任务完成', typeof p['text'] === 'string' ? String(p['text']).slice(0, 120) : '本轮执行结束');
           break;
         }
         case 'agent-error':
@@ -1187,6 +1234,7 @@ function App() {
             busy: false,
             items: [...t.items, { kind: 'system', text: `⚠ ${friendlyError(p['message'])}` } as Item],
           }));
+          pushNotif('error', '执行出错', friendlyError(p['message']));
           break;
         case 'session-resumed':
           break;
@@ -1221,15 +1269,18 @@ function App() {
       if (k === 'n') { e.preventDefault(); void newTabRef.current(); }
       else if (k === 'k') { e.preventDefault(); setView('search'); }
       else if (k === 'w') { e.preventDefault(); closeTabRef.current(activeRef.current); }
+      else if (k === 'm') { e.preventDefault(); window.dispatchEvent(new CustomEvent('bajin:voice-toggle')); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [tab.busy, tab.sessionId]);
   const newTabRef = useRef(() => {});
   const closeTabRef = useRef((_: number) => {});
+  const openHistoryRef = useRef((_: string) => {});
   const activeRef = useRef(0);
   newTabRef.current = () => void newTab();
   closeTabRef.current = (i: number) => closeTab(i);
+  openHistoryRef.current = (sid: string) => openHistory(sid);
   activeRef.current = active;
 
   /* 任务运行中每秒重渲染（工具卡耗时显示） */
@@ -1653,7 +1704,7 @@ function App() {
         <div className="chat-row">
         {showProcMonitor && (<ProcessMonitorPanel onClose={() => setShowProcMonitor(false)} />)}
         {editorFile && (<FileEditorPanel filePath={editorFile} onClose={() => setEditorFile(null)} />)}
-        {showFileTree && <FileTreePanel cwd={tab.cwd} onPick={(p) => setInput(`Read ${p}`)} />}
+        {showFileTree && <FileTreePanel cwd={tab.cwd} onPick={(p) => setInput(`Read ${p}`)} onEdit={(p) => setEditorFile(p)} />}
         <div className="log" ref={logRef}>
           {tab.items.map((it, i) => {
             if (it.kind === 'user') {
@@ -1772,6 +1823,16 @@ function App() {
             <div className="sp-section">
               <div className="sp-title">会话</div>
               <div className="sp-goal">{tab.model} · {MODE_LABELS[tab.mode] ?? tab.mode} · {tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tokens</div>
+              <button className="share-btn" title="复制分享链接（浏览器打开直达本会话）"
+                onClick={() => {
+                  const link = IS_WEB
+                    ? `${window.location.origin}/?session=${tab.sessionId}`
+                    : `bajin://session/${tab.sessionId}`;
+                  void navigator.clipboard.writeText(link).then(
+                    () => pushNotif('info', '分享链接已复制', link),
+                    () => pushNotif('error', '复制失败', link),
+                  );
+                }}>🔗 复制分享链接</button>
             </div>
           </aside>
         )}
@@ -1860,6 +1921,18 @@ function App() {
         </div>
       )}
 
+      {/* 通知中心（右下角 🔔，历史 approval/完成/错误） */}
+      <NotificationCenter
+        notifications={notifications}
+        open={showNotifCenter}
+        unread={notifications.filter((n) => !n.read).length}
+        onToggle={() => setShowNotifCenter((v) => {
+          if (!v) setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+          return !v;
+        })}
+        onClear={() => setNotifications([])}
+      />
+
       {/* 模型切换弹窗（按供应商分组，对标 ZCode 模型下拉） */}
       {showModelPicker && (
         <ModelPicker
@@ -1872,6 +1945,48 @@ function App() {
         />
       )}
     </div>
+  );
+}
+
+/** 通知中心（对标 ZCode 通知历史）：右下角 🔔 + 弹出历史列表（approval/完成/错误） */
+function NotificationCenter({ notifications, open, unread, onToggle, onClear }: {
+  notifications: Array<{ id: number; kind: 'approval' | 'done' | 'error' | 'info'; title: string; body: string; ts: number; read: boolean }>;
+  open: boolean; unread: number; onToggle: () => void; onClear: () => void;
+}): ReactNode {
+  const fmt = (ts: number): string => {
+    const d = new Date(ts);
+    const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return d.toDateString() === new Date().toDateString() ? hm : `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+  };
+  const icon = (kind: string): string => (kind === 'approval' ? '⏸' : kind === 'done' ? '✓' : kind === 'error' ? '⚠' : 'ℹ');
+  return (
+    <>
+      <button className={`notif-fab ${unread > 0 ? 'has-unread' : ''}`} onClick={onToggle} title="通知中心">
+        🔔{unread > 0 && <span className="notif-badge">{unread > 9 ? '9+' : unread}</span>}
+      </button>
+      {open && (
+        <div className="notif-panel">
+          <div className="notif-head">
+            <span>通知中心</span>
+            <span style={{ flex: 1 }} />
+            <button className="icon-btn" onClick={onClear} title="清空">清空</button>
+            <button className="icon-btn" onClick={onToggle}>×</button>
+          </div>
+          <div className="notif-list">
+            {notifications.length === 0 && <div className="notif-empty">暂无通知</div>}
+            {[...notifications].reverse().map((n) => (
+              <div key={n.id} className={`notif-item ${n.read ? '' : 'unread'}`}>
+                <span className={`notif-ico k-${n.kind}`}>{icon(n.kind)}</span>
+                <div className="notif-body">
+                  <div className="notif-title">{n.title} <span className="log-meta">{fmt(n.ts)}</span></div>
+                  <div className="notif-text">{n.body}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -2043,7 +2158,7 @@ function TodoPanel({ todos }: { todos: TodoItem[] }): ReactNode {
 /* 文件树面板（对标 ZCode 文件树，220px 左栏）：fs/list 懒加载逐层展开；点击文件 → 填入 Read 提示词 */
 interface FsEntry { name: string; isDir: boolean; size: number; path: string; }
 
-function FileTreePanel({ cwd, onPick }: { cwd?: string; onPick: (file: string) => void }): ReactNode {
+function FileTreePanel({ cwd, onPick, onEdit }: { cwd?: string; onPick: (file: string) => void; onEdit: (file: string) => void }): ReactNode {
   const [root, setRoot] = useState('');
   const [children, setChildren] = useState<Record<string, FsEntry[]>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -2087,8 +2202,9 @@ function FileTreePanel({ cwd, onPick }: { cwd?: string; onPick: (file: string) =
           key={e.path}
           className="ft-item file"
           style={{ paddingLeft: 8 + depth * 12 }}
-          title={e.path}
+          title={`${e.path}（双击编辑）`}
           onClick={() => onPick(e.path)}
+          onDoubleClick={() => onEdit(e.path)}
         >
           <span className="ft-icon">📄</span>
           <span className="ft-name">{e.name}</span>
@@ -2145,40 +2261,106 @@ function VoiceButton({ onText }: { onText: (t: string) => void }): ReactNode {
     ref.current = rec;
     setOn(true);
   }
-  return <button className={`voice-btn ${on ? 'on' : ''}`} onClick={toggle} title={on ? '停止' : '🎤'}>{on ? '🔴' : '🎤'}</button>;
+  // Ctrl+M 全局快捷键（App 侧 dispatch 'bajin:voice-toggle'）
+  useEffect(() => {
+    const h = (): void => { toggle(); };
+    window.addEventListener('bajin:voice-toggle', h);
+    return () => window.removeEventListener('bajin:voice-toggle', h);
+  });
+  return <button className={`voice-btn ${on ? 'on' : ''}`} onClick={toggle} title={on ? '停止（Ctrl+M）' : '🎤 语音输入（Ctrl+M）'}>{on ? '🔴' : '🎤'}</button>;
 }
 
+/** 行级 LCS diff（编辑器保存对比用，>1200 行退化为整块替换展示） */
+function lineDiff(aText: string, bText: string): Array<{ t: ' ' | '-' | '+'; line: string }> {
+  const a = aText.split('\n');
+  const b = bText.split('\n');
+  if (a.length > 1200 || b.length > 1200) {
+    return [...a.map((line) => ({ t: '-' as const, line })), ...b.map((line) => ({ t: '+' as const, line }))];
+  }
+  const n = a.length, m = b.length;
+  const dp: Uint32Array[] = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i]![j] = a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!);
+    }
+  }
+  const ops: Array<{ t: ' ' | '-' | '+'; line: string }> = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) { ops.push({ t: ' ', line: a[i]! }); i++; j++; }
+    else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) { ops.push({ t: '-', line: a[i]! }); i++; }
+    else { ops.push({ t: '+', line: b[j]! }); j++; }
+  }
+  while (i < n) { ops.push({ t: '-', line: a[i]! }); i++; }
+  while (j < m) { ops.push({ t: '+', line: b[j]! }); j++; }
+  return ops;
+}
+
+/** 文件编辑器：语法着色 overlay + 保存前 diff 确认（对标 ZCode 编辑器体验） */
 function FileEditorPanel({ filePath, onClose }: { filePath: string; onClose: () => void }): ReactNode {
   const [content, setContent] = useState('');
+  const [original, setOriginal] = useState('');
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [pendingDiff, setPendingDiff] = useState<Array<{ t: ' ' | '-' | '+'; line: string }> | null>(null);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const hlRef = useRef<HTMLPreElement | null>(null);
+  const lang = langFromPath(filePath);
   useEffect(() => {
     void window.bajin.rpc('fs/read', { path: filePath })
-      .then((r) => setContent(String((r as { content?: string }).content ?? '')))
+      .then((r) => { const c = String((r as { content?: string }).content ?? ''); setContent(c); setOriginal(c); })
       .catch(() => setContent('// 无法读取'));
   }, [filePath]);
-  async function save(): Promise<void> {
+  async function write(): Promise<void> {
     setSaving(true);
     try {
       await window.bajin.rpc('fs/write', { path: filePath, content });
-      setDirty(false); setSaved(true); setTimeout(() => setSaved(false), 2000);
+      setDirty(false); setOriginal(content); setPendingDiff(null); setSaved(true); setTimeout(() => setSaved(false), 2000);
     } catch { /* */ }
     setSaving(false);
   }
+  /** 保存前先出 diff（原 vs 改）确认——只有确认后才真正落盘 */
+  function requestSave(): void {
+    if (!dirty || saving) return;
+    const ops = lineDiff(original, content);
+    // 没有实际变化（如改了又改回去）直接静默重置脏标记
+    if (!ops.some((o) => o.t !== ' ')) { setDirty(false); return; }
+    setPendingDiff(ops);
+  }
+  const changed = pendingDiff?.filter((o) => o.t !== ' ').length ?? 0;
   return (
     <div className="file-editor">
       <div className="ft-head">
         <span className="ft-title">📝 {filePath.split('/').pop()}</span>
-        <span className="log-meta">{filePath.split('/').length - 1} 行</span>
+        <span className="log-meta">{filePath.split('/').length - 1} 行 · {lang.toUpperCase()}</span>
         <span style={{ flex: 1 }} />
-        {saved && <span style={{ color: 'var(--ok)', fontSize: 12 }}>✓</span>}
-        <button disabled={!dirty || saving} onClick={() => void save()} style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 12px', cursor: 'pointer' }}>保存</button>
+        {saved && <span style={{ color: 'var(--ok)', fontSize: 12 }}>✓ 已保存</span>}
+        <button disabled={!dirty || saving || pendingDiff !== null} onClick={requestSave} style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 4, padding: '2px 12px', cursor: 'pointer' }}>保存</button>
         <button className="icon-btn" onClick={onClose}>×</button>
       </div>
-      <textarea className="editor-textarea" value={content} spellCheck={false}
-        onChange={(e) => { setContent(e.target.value); setDirty(true); }}
-        onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); if (dirty) void save(); } }} />
+      {pendingDiff && (
+        <div className="save-diff">
+          <div className="save-diff-head">
+            保存对比（{changed} 处变更）
+            <span style={{ flex: 1 }} />
+            <button className="primary" disabled={saving} onClick={() => void write()}>确认保存</button>
+            <button onClick={() => setPendingDiff(null)}>继续编辑</button>
+          </div>
+          <pre className="diff">
+            {pendingDiff.map((o, k) => (
+              <span key={k} className={o.t === '+' ? 'dl-add' : o.t === '-' ? 'dl-del' : 'dl-ctx'}>{o.t === ' ' ? ' ' : o.t} {o.line}{'\n'}</span>
+            ))}
+          </pre>
+        </div>
+      )}
+      <div className="editor-wrap">
+        <pre ref={hlRef} className="editor-hl" aria-hidden="true"><code dangerouslySetInnerHTML={{ __html: highlightCode(content, lang) }} />{'\n'}</pre>
+        <textarea ref={taRef} className="editor-textarea" value={content} spellCheck={false} wrap="off"
+          onChange={(e) => { setContent(e.target.value); setDirty(true); }}
+          onScroll={() => { if (hlRef.current && taRef.current) { hlRef.current.scrollTop = taRef.current.scrollTop; hlRef.current.scrollLeft = taRef.current.scrollLeft; } }}
+          onKeyDown={(e) => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); requestSave(); } }} />
+      </div>
     </div>
   );
 }
@@ -3781,6 +3963,17 @@ function HelpView(): ReactNode {
 
 /* ---------- 搜索视图 ---------- */
 
+/** 搜索结果高亮：按关键词（大小写不敏感）切分，匹配段包 <mark> */
+function HighlightText({ text, q }: { text: string; q: string }): ReactNode {
+  if (!q.trim()) return <>{text}</>;
+  const parts = text.split(new RegExp(`(${q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'));
+  return (
+    <>
+      {parts.map((seg, i) => (i % 2 === 1 ? <mark key={i} className="hit">{seg}</mark> : <span key={i}>{seg}</span>))}
+    </>
+  );
+}
+
 function SearchView({ onOpen }: { onOpen: (sessionId: string) => void }): ReactNode {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Array<{ sessionId: string; title: string; snippet: string; matches: number }>>([]);
@@ -3810,8 +4003,8 @@ function SearchView({ onOpen }: { onOpen: (sessionId: string) => void }): ReactN
         {results.map((r) => (
           <div key={r.sessionId} className="log-row" onClick={() => onOpen(r.sessionId)}>
             <div className="search-hit">
-              <div className="log-name">{r.title || r.sessionId.slice(0, 16)} <span className="log-meta">· {r.matches} 处匹配</span></div>
-              {r.snippet && <div className="search-snippet">{r.snippet}</div>}
+              <div className="log-name"><HighlightText text={r.title || r.sessionId.slice(0, 16)} q={query} /> <span className="log-meta">· {r.matches} 处匹配</span></div>
+              {r.snippet && <div className="search-snippet"><HighlightText text={r.snippet} q={query} /></div>}
             </div>
           </div>
         ))}
