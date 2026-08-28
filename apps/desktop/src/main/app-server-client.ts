@@ -22,8 +22,10 @@ export class AppServerClient {
   private seq = 0;
   private readonly pending = new Map<number, Pending>();
   private rl: readline.Interface | null = null;
+  /** 主动停止（kill 置位）：exit 回调据此区分崩溃与关停，崩溃才走自动重启 */
+  private stopped = false;
   onEvent: ((event: string, params: unknown) => void) | null = null;
-  onExit: ((code: number | null) => void) | null = null;
+  onExit: ((code: number | null, crashed: boolean) => void) | null = null;
   /** 注入 agent 子进程的额外环境变量（代理 / 数据目录等，start 前设置） */
   extraEnv: Record<string, string> = {};
 
@@ -34,6 +36,7 @@ export class AppServerClient {
 
   start(): void {
     if (this.child) return;
+    this.stopped = false;
     this.child = spawn(this.command, this.args, {
       env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...this.extraEnv },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -47,7 +50,11 @@ export class AppServerClient {
     this.child.on('exit', (code) => {
       for (const [, p] of this.pending) p.reject(new Error(`app-server 已退出（code=${code}）`));
       this.pending.clear();
-      this.onExit?.(code);
+      // 复位引用，start() 才能重拉（R7-4 崩溃自动恢复）；stopped 区分主动关停
+      this.rl?.close();
+      this.rl = null;
+      this.child = null;
+      this.onExit?.(code, !this.stopped);
     });
   }
 
@@ -96,7 +103,9 @@ export class AppServerClient {
   }
 
   kill(): void {
+    this.stopped = true;
     this.rl?.close();
+    this.rl = null;
     this.child?.kill();
     this.child = null;
   }

@@ -1,9 +1,10 @@
-import { app, BrowserWindow, ipcMain, dialog, Notification, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Notification, shell, desktopCapturer } from 'electron';
 import { platform } from '@bajin/shared';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { readFileSync, writeFileSync, existsSync, cpSync } from 'node:fs';
 import { AppServerClient } from './app-server-client';
+import { RestartSupervisor } from '@bajin/core';
 
 /**
  * bajin 桌面端主进程 = 窗口壳 + agent 子进程管理（对标 ZCode 的分层：
@@ -109,12 +110,38 @@ function agentExtraEnv(): Record<string, string> {
   return env;
 }
 
+/** app-server 崩溃自动恢复（R7-4，对标 ZCode host 掉线恢复）：
+ * 指数退避重拉（1s→2s→…→30s 封顶，最多 5 次；稳定运行 60s 清零），
+ * 成功后发 server-restarted 让渲染层重连会话——用户只看到一条系统提示。 */
+const agentSupervisor = new RestartSupervisor({ baseDelayMs: 1000, maxDelayMs: 30_000, maxAttempts: 5, stableMs: 60_000 });
+let healthyTimer: NodeJS.Timeout | null = null;
+
 function startAgent(): void {
   const entry = resolveAgentEntry();
   client = new AppServerClient(process.execPath, [entry, 'app-server', '--stdio']);
   client.extraEnv = agentExtraEnv();
   client.onEvent = forwardEvent;
-  client.onExit = (code) => forwardEvent('server-exit', { code });
+  client.onExit = (code, crashed) => {
+    if (healthyTimer) { clearTimeout(healthyTimer); healthyTimer = null; }
+    if (!crashed || !client) {
+      forwardEvent('server-exit', { code });
+      return;
+    }
+    agentSupervisor.noteHealthy();
+    if (!agentSupervisor.shouldRestart()) {
+      forwardEvent('server-exit', { code, gaveUp: true });
+      return;
+    }
+    const delay = agentSupervisor.nextDelayMs();
+    forwardEvent('server-exit', { code, willRestart: true, attempt: agentSupervisor.attempts, delayMs: delay });
+    setTimeout(() => {
+      if (!client) return;
+      client.start();
+      // 子进程起来且 60s 内没再挂 → 视为稳定，退避计数清零
+      healthyTimer = setTimeout(() => agentSupervisor.noteHealthy(), 60_000);
+      forwardEvent('server-restarted', { attempt: agentSupervisor.attempts });
+    }, delay);
+  };
   client.start();
 }
 
@@ -203,6 +230,23 @@ app.whenReady().then(() => {
   ipcMain.handle('bajin:browser:navigate', (_e, url: string) => {
     if (!/^https:\/\//.test(url)) return false;
     win?.webContents.send('bajin:browser:navigate', { url });
+    return true;
+  });
+
+  // 屏幕录制（R6-4）：渲染层 getDisplayMedia 需要 display media 请求处理器，
+  // 默认抓主显示器（用户在系统级还能再选窗口）
+  try {
+    win?.webContents.session.setDisplayMediaRequestHandler((_req, callback) => {
+      void desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+        callback({ video: sources[0], enableLocalEcho: false });
+      });
+    });
+  } catch { /* 旧版 Electron 无此 API：getDisplayMedia 不可用，面板会提示错误 */ }
+
+  // 在系统默认浏览器打开（R6-3）：仅 http(s)，交给 shell，不经内嵌面板
+  ipcMain.handle('bajin:browser:open-external', (_e, url: string) => {
+    if (!/^https?:\/\//.test(url)) return false;
+    void shell.openExternal(url);
     return true;
   });
 

@@ -31,6 +31,7 @@ export interface BajinApi {
   browserClearCache(): Promise<boolean>;
   browserClearData(): Promise<boolean>;
   browserNavigate(url: string): Promise<boolean>;
+  browserOpenExternal(url: string): Promise<boolean>;
   onBrowserNavigate(cb: (url: string) => void): () => void;
   hooksGet<T = Record<string, unknown> | null>(): Promise<T>;
   hooksSetEnabled(enabled: boolean): Promise<Record<string, unknown>>;
@@ -69,6 +70,7 @@ const api: BajinApi = {
   browserClearCache: () => ipcRenderer.invoke('bajin:browser:clear-cache'),
   browserClearData: () => ipcRenderer.invoke('bajin:browser:clear-data'),
   browserNavigate: (url) => ipcRenderer.invoke('bajin:browser:navigate', url),
+  browserOpenExternal: (url) => ipcRenderer.invoke('bajin:browser:open-external', url),
   onBrowserNavigate: (cb) => {
     const listener = (_e: unknown, p: { url: string }) => cb(p.url);
     ipcRenderer.on('bajin:browser:navigate', listener as never);
