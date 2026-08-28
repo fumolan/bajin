@@ -103,6 +103,7 @@ export interface ChatRequest {
   tools?: ProviderTool[];
   maxTokens?: number;
   temperature?: number;
+  topP?: number;
   signal?: AbortSignal;
 }
 
@@ -126,3 +127,6 @@ export function toolSchemaToParameters(schema: z.ZodType): Record<string, unknow
 // ---------- 平台适配层（业务代码只依赖 platform 接口，平台差异见 platform/ 目录） ----------
 
 export * from './platform/index.js';
+export * from './browser-url.js';
+export * from './plan-view.js';
+export * from './tab-ops.js';

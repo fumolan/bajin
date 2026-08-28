@@ -10,6 +10,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@bajin/core':
+        specifier: workspace:^
+        version: link:../../packages/core
       '@bajin/shared':
         specifier: workspace:*
         version: link:../../packages/shared

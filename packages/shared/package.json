@@ -13,6 +13,18 @@
     "./platform/shell-options": {
       "types": "./dist/platform/shell-options.d.ts",
       "default": "./dist/platform/shell-options.js"
+    },
+    "./browser-url": {
+      "types": "./dist/browser-url.d.ts",
+      "default": "./dist/browser-url.js"
+    },
+    "./plan-view": {
+      "types": "./dist/plan-view.d.ts",
+      "default": "./dist/plan-view.js"
+    },
+    "./tab-ops": {
+      "types": "./dist/tab-ops.d.ts",
+      "default": "./dist/tab-ops.js"
     }
   },
   "scripts": {
