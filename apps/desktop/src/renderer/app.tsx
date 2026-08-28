@@ -1,9 +1,12 @@
 import { createRoot } from 'react-dom/client';
-import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react';
+import { useEffect, useRef, useState, useCallback, Component as ReactComponent, type ReactNode, type ErrorInfo } from 'react';
 import { createPortal } from 'react-dom';
 import { terminalShellOptions } from '@bajin/shared/platform/shell-options';
 import { renderMarkdown } from './markdown.js';
 import { highlightCode, langFromPath } from './highlight.js';
+import { normalizeBrowserUrl } from '@bajin/shared/browser-url';
+import { shouldCollapsePlan } from '@bajin/shared/plan-view';
+import { closeOthers as tabCloseOthers, closeAll as tabCloseAll, reopenTab as tabReopenGeneric } from '@bajin/shared/tab-ops';
 
 /* ---------- 类型 ---------- */
 
@@ -17,11 +20,13 @@ type Item =
   | { kind: 'system'; text: string };
 
 interface Tab {
+  /** 恢复定位用（R8-3）：创建序号，reopen 按它插回原位 */
+  id: number;
   sessionId: string | null;
   title: string;
   items: Item[];
   busy: boolean;
-  approval: { requestId: string; name: string; summary: string; plan?: string } | null;
+  approval: { requestId: string; name: string; summary: string; plan?: string; args?: Record<string, unknown> } | null;
   ask: { requestId: string; question: string; options?: Array<{ label: string; description?: string }>; header?: string; multiSelect?: boolean } | null;
   todos: TodoItem[];
   tokens: number;
@@ -88,6 +93,10 @@ const platformId = (): string =>
 
 /** 浏览器（web shim）模式：webview 内嵌浏览器等 Electron 专属能力降级隐藏 */
 const IS_WEB = !!(window as { bajin?: { __web?: boolean } }).bajin?.__web;
+/** 长会话默认渲染窗口（尾部锚定，滚顶加载更早 200 条） */
+const LOG_WINDOW = 150;
+/** 侧栏任务列表默认渲染上限（窗口化，超出显示「显示更多」） */
+const SIDEBAR_WINDOW = 120;
 
 const MODES = ['plan', 'build', 'edit', 'yolo'];
 
@@ -160,6 +169,13 @@ const EN: Record<string, string> = {
   '会话': 'Session', '目标': 'Goal', '计划': 'Plan', '进程': 'Progress',
   '向 bajin 提问，使用 / 选择命令或能力': 'Ask bajin anything, use / for commands',
   '任务执行中…（可点「停止」中断）': 'Task running… (click Stop to interrupt)',
+  '初始化失败': 'Initialization failed', '发送失败': 'Send failed', '打开会话失败': 'Failed to open session',
+  '查看会话': 'View session', '搜索当前会话...': 'Search current session…',
+  '变更文件': 'Changed files', '最近提交': 'Recent commits', '文件树': 'File tree',
+  '快捷键': 'Shortcuts', '暂停': 'Pause', '已暂停': 'Paused', '启用': 'Enable',
+  '插件市场': 'Plugin Marketplace',
+  '从 git 仓库一键安装（clone 后落入 ~/.bajin/plugins/）': 'One-click install from a git repo (cloned into ~/.bajin/plugins/)',
+  '把插件目录放到 ~/.bajin/plugins/ 下（含 plugin.json + skills/ 或 commands/），自动发现': 'Drop plugin dirs into ~/.bajin/plugins/ (plugin.json + skills/ or commands/); auto-discovered',
 };
 let LANG: 'zh-CN' | 'en-US' = 'zh-CN';
 function setLang(l: 'system' | 'zh-CN' | 'en-US' | undefined): void {
@@ -292,6 +308,7 @@ declare global {
       browserClearCache(): Promise<boolean>;
       browserClearData(): Promise<boolean>;
       browserNavigate(url: string): Promise<boolean>;
+      browserOpenExternal?(url: string): Promise<boolean>;
       onBrowserNavigate(cb: (url: string) => void): () => void;
       onEvent(cb: (p: { event: string; params: unknown }) => void): () => void;
     };
@@ -888,6 +905,7 @@ const STARTER_TEMPLATES: StarterTemplate[] = [
 let tabSeq = 0;
 function blankTab(): Tab {
   return {
+    id: ++tabSeq,
     sessionId: null,
     title: `新会话 ${++tabSeq}`,
     items: [],
@@ -922,6 +940,8 @@ function App() {
   const [showPanel, setShowPanel] = useState(true);
   const [showTerminal, setShowTerminal] = useState(false);
   const [showBrowser, setShowBrowser] = useState(false);
+  /* 浏览器面板指令（R6）：BrowserNavigate 工具事件 → 面板打开并应用 */
+  const [browserDirective, setBrowserDirective] = useState<{ url?: string; viewport?: { width: number; height: number }; zoom?: number; action?: 'click' | 'type'; selector?: string; text?: string; seq?: number } | null>(null);
   const [showFileTree, setShowFileTree] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [sessionSearch, setSessionSearch] = useState('');
@@ -939,6 +959,13 @@ function App() {
   const [uiSettings, setUiSettings] = useState<UISettings>({});
   const [, forceI18n] = useState(0);
   const logRef = useRef<HTMLDivElement>(null);
+  /* 长会话虚拟滚动（R5-2）：每会话渲染窗口，默认尾部 150 条，滚顶加载更早 */
+  const [logLimits, setLogLimits] = useState<Record<string, number>>({});
+  /* 侧栏任务窗口化（R5-2）：默认渲染前 120 个，超出显示「显示更多」 */
+  const [sidebarLimit, setSidebarLimit] = useState(SIDEBAR_WINDOW);
+  /* 标签恢复栈（R8-3）：closeOne/Others/All 统一入栈，Ctrl+Shift+T 或菜单恢复 */
+  const [closedTabs, setClosedTabs] = useState<Pick<Tab, 'id' | 'title' | 'sessionId'>[]>([]);
+  const [tabMenu, setTabMenu] = useState<{ idx: number; x: number; y: number } | null>(null);
   const bootRef = useRef<{ mock: boolean; apiKey: string | null; model: string | null; mode: string | null; baseUrl: string | null; home: string | null } | null>(null);
   const tab = tabs[active] ?? tabs[0]!;
 
@@ -1181,7 +1208,7 @@ function App() {
           const plan = name === 'ExitPlanMode' && args && typeof args['plan'] === 'string' ? args['plan'] : undefined;
           patchTab(sid ?? null, (t) => ({
             ...t,
-            approval: { requestId: String(p['requestId']), name, summary: summarizeArgs(name, args), plan },
+            approval: { requestId: String(p['requestId']), name, summary: summarizeArgs(name, args), plan, args },
           }));
           pushNotif('approval', '等待审批', `${name}: ${summarizeArgs(name, args)}`);
           break;
@@ -1238,9 +1265,50 @@ function App() {
           break;
         case 'session-resumed':
           break;
-        case 'server-exit':
-          setTabs((prev) => prev.map((t) => ({ ...t, busy: false, items: [...t.items, { kind: 'system', text: '⚠ agent 进程已退出，请重启应用' } as Item] })));
+        case 'server-exit': {
+          // R7-4：崩溃自动恢复分级——willRestart 安抚提示 / gaveUp 才要求重启应用
+          const d = p as { willRestart?: boolean; attempt?: number; delayMs?: number; gaveUp?: boolean };
+          const text = d['willRestart']
+            ? `⚠ 后端异常退出，${Math.ceil(Number(d['delayMs'] ?? 1000) / 1000)} 秒后自动重启（第 ${Number(d['attempt'] ?? 1)} 次），会话将自动恢复…`
+            : d['gaveUp']
+              ? '⚠ 后端多次重启失败，请手动重启应用后从任务列表恢复会话'
+              : '⚠ agent 进程已退出';
+          setTabs((prev) => prev.map((t) => ({ ...t, busy: false, items: [...t.items, { kind: 'system', text } as Item] })));
           break;
+        }
+        // R7-4：后端已自动重启——重新 initialize 并恢复各标签会话
+        case 'server-restarted': {
+          const boot = bootRef.current;
+          void (async () => {
+            try {
+              const res = await window.bajin.rpc<Record<string, unknown>>('initialize', {
+                mock: Boolean(boot?.mock),
+                ...(boot?.apiKey ? { apiKey: boot.apiKey } : {}),
+                ...(boot?.model ? { model: boot.model } : {}),
+                ...(boot?.mode ? { mode: boot.mode } : {}),
+                ...(boot?.baseUrl ? { baseUrl: boot.baseUrl } : {}),
+                persist: true,
+              });
+              const newSid = String(res['sessionId'] ?? '');
+              setTabs((prev) => prev.map((t) => ({ ...t, busy: false, items: [...t.items, { kind: 'system', text: `✓ 后端已自动恢复（第 ${String(p['attempt'] ?? '?')} 次重启）` } as Item] })));
+              // 各标签旧会话重新打开（历史从持久化恢复）
+              if (newSid) void newSid;
+              tabsRef.current.forEach((t) => { if (t.sessionId) void openHistoryRef.current(t.sessionId); });
+            } catch (err) {
+              setTabs((prev) => prev.map((t) => ({ ...t, items: [...t.items, { kind: 'system', text: `⚠ 恢复会话失败: ${friendlyError(err)}` } as Item] })));
+            }
+          })();
+          break;
+        }
+        // 浏览器面板控制（R6）：BrowserNavigate/Click/Type 工具 → 面板自动打开并应用
+        case 'browser-panel': {
+          const d = p as { url?: string; viewport?: { width: number; height: number }; zoom?: number; action?: 'click' | 'type'; selector?: string; text?: string; seq?: number };
+          if (d['url'] || d['viewport'] || d['zoom'] || d['action']) {
+            setBrowserDirective(d);
+            setShowBrowser(true);
+          }
+          break;
+        }
       }
     });
   }, [patchTab, pushItem]);
@@ -1270,6 +1338,7 @@ function App() {
       else if (k === 'k') { e.preventDefault(); setView('search'); }
       else if (k === 'w') { e.preventDefault(); closeTabRef.current(activeRef.current); }
       else if (k === 'm') { e.preventDefault(); window.dispatchEvent(new CustomEvent('bajin:voice-toggle')); }
+      else if (k === 't' && e.shiftKey) { e.preventDefault(); reopenClosedTabRef.current(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -1277,10 +1346,14 @@ function App() {
   const newTabRef = useRef(() => {});
   const closeTabRef = useRef((_: number) => {});
   const openHistoryRef = useRef((_: string) => {});
+  const tabsRef = useRef<Array<{ sessionId: string | null }>>([]);
+  const reopenClosedTabRef = useRef(() => {});
   const activeRef = useRef(0);
   newTabRef.current = () => void newTab();
   closeTabRef.current = (i: number) => closeTab(i);
   openHistoryRef.current = (sid: string) => openHistory(sid);
+  tabsRef.current = tabs;
+  reopenClosedTabRef.current = reopenClosedTab;
   activeRef.current = active;
 
   /* 任务运行中每秒重渲染（工具卡耗时显示） */
@@ -1342,6 +1415,33 @@ function App() {
       }
     }
     patchTab(tab.sessionId, (t) => ({ ...t, busy: true, items: [...t.items, { kind: 'user', text }, { kind: 'assistant', text: '' }] }));
+    try {
+      await window.bajin.rpc('send', { sessionId: tab.sessionId, text });
+    } catch (err) {
+      patchTab(tab.sessionId, (tb) => ({ ...tb, busy: false, items: [...tb.items, { kind: 'system', text: `⚠ ${t('发送失败')}: ${friendlyError(err)}` } as Item] }));
+    }
+    void refreshHistory();
+  }
+
+  /** 重新生成（R5-3）：回退最后一轮（session/rewind 后端裁剪 transcript）再原样重发 */
+  async function regenerate(): Promise<void> {
+    if (!tab.sessionId || tab.busy) return;
+    // 找最后一条用户消息文本
+    const lastUser = [...tab.items].reverse().find((it) => it.kind === 'user');
+    const text = lastUser && lastUser.kind === 'user' ? lastUser.text.trim() : '';
+    if (!text) return;
+    try {
+      await window.bajin.rpc('session/rewind', { sessionId: tab.sessionId, n: 1 });
+    } catch (err) {
+      pushItem(tab.sessionId, { kind: 'system', text: `⚠ 回退失败: ${friendlyError(err)}` });
+      return;
+    }
+    // 本地移除最后一轮（自最后一条 user 起），再重发
+    patchTab(tab.sessionId, (t2) => {
+      const flags = t2.items.map((it) => it.kind === 'user');
+      const idx = flags.lastIndexOf(true);
+      return { ...t2, busy: true, items: [...t2.items.slice(0, idx), { kind: 'user', text }, { kind: 'assistant', text: '' }] };
+    });
     try {
       await window.bajin.rpc('send', { sessionId: tab.sessionId, text });
     } catch (err) {
@@ -1479,12 +1579,45 @@ function App() {
     setActive((a) => (a >= idx && a > 0 ? a - 1 : a));
   }
 
-  async function respondApproval(approved: boolean, always = false): Promise<void> {
+  /** 关闭其他标签（R8-3）：其余全部入恢复栈 */
+  function closeOtherTabs(idx: number): void {
+    const r = tabCloseOthers(tabs, idx);
+    for (const t of r.closed) if (t.sessionId) void window.bajin.rpc('session/close', { sessionId: t.sessionId }).catch(() => undefined);
+    setTabs(r.next);
+    setActive(r.nextActive);
+    setClosedTabs((prev) => [...prev, ...r.closed].slice(-20));
+    setTabMenu(null);
+  }
+  /** 关闭全部标签（R8-3）：全部入栈，落一个空白标签承接 */
+  function closeAllTabs(): void {
+    const r = tabCloseAll(tabs);
+    for (const t of r.closed) if (t.sessionId) void window.bajin.rpc('session/close', { sessionId: t.sessionId }).catch(() => undefined);
+    setClosedTabs((prev) => [...prev, ...r.closed].slice(-20));
+    setTabs([blankTab()]);
+    setActive(0);
+    setTabMenu(null);
+  }
+  /** 恢复最近关闭（R8-3）：弹栈插回原位（不重开 app-server 会话——历史列表仍在，点击可找回） */
+  function reopenClosedTab(): void {
+    const r = tabReopenGeneric<typeof tabs[number]>(tabs, closedTabs as typeof tabs);
+    if (!r) return;
+    setTabs(r.next);
+    setActive(r.nextActive);
+    setClosedTabs(r.stack as typeof closedTabs);
+  }
+
+  async function respondApproval(approved: boolean, always = false, planNote = ''): Promise<void> {
     if (!tab.approval || !tab.sessionId) return;
     const { requestId, name } = tab.approval;
+    const isPlan = Boolean(tab.approval.plan);
     patchTab(tab.sessionId, (t) => ({ ...t, approval: null, items: [...t.items, { kind: 'system', text: approved ? (always ? `✓ 已批准并始终允许 ${name}` : `✓ 已批准 ${name}`) : `✗ 已拒绝 ${name}` } as Item] }));
     if (approved && always) await window.bajin.rpc('set-allowed-tools', { sessionId: tab.sessionId, add: name }).catch(() => undefined);
     await window.bajin.rpc('approval:respond', { requestId, approved }).catch(() => undefined);
+    // 计划批准时的补充要求（R6-6）：作为追加指令发给会话，实施前并入计划
+    if (approved && isPlan && planNote.trim()) {
+      patchTab(tab.sessionId, (t) => ({ ...t, items: [...t.items, { kind: 'user', text: `补充计划要求：${planNote.trim()}` } as Item] }));
+      await window.bajin.rpc('send', { sessionId: tab.sessionId, text: `补充计划要求（批准时追加，请并入当前计划后继续实施）：${planNote.trim()}` }).catch(() => undefined);
+    }
   }
 
   async function respondAsk(answer: string | null): Promise<void> {
@@ -1579,7 +1712,7 @@ function App() {
         </div>
         <div className="history-list">
           {taskViewMode === 'projects' ? (
-            bucketTasks(visibleHistory(), 'projects').map(([cwd, items]) => {
+            bucketTasks(visibleHistory().slice(0, sidebarLimit), 'projects').map(([cwd, items]) => {
               const name = cwd.split('/').pop() || cwd;
               const collapsed = collapsedGroups.has(cwd);
               return (
@@ -1605,7 +1738,7 @@ function App() {
               );
             })
           ) : (
-            bucketTasks(visibleHistory(), 'grouped').map(([bucket, items]) => (
+            bucketTasks(visibleHistory().slice(0, sidebarLimit), 'grouped').map(([bucket, items]) => (
               <div key={bucket}>
                 <div
                   className={`history-group clickable ${collapsedGroups.has(bucket) ? 'collapsed' : ''}`}
@@ -1625,6 +1758,9 @@ function App() {
             ))
           )}
           {!history.length && <div className="history-empty">{t('暂无任务（发送消息后生成）')}</div>}
+          {visibleHistory().length > sidebarLimit && (
+            <div className="log-load-more" onClick={() => setSidebarLimit((n) => n + 200)}>↓ 显示更多任务（还有 {visibleHistory().length - sidebarLimit} 个）</div>
+          )}
         </div>
         <div className="side-foot">
           <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
@@ -1655,7 +1791,8 @@ function App() {
           />
           <div className="topbar-tabs">
             {tabs.map((t, i) => (
-              <div key={t.sessionId ?? `blank-${i}`} className={`tab ${i === active ? 'active' : ''}`} onClick={() => setActive(i)}>
+              <div key={t.sessionId ?? `blank-${i}`} className={`tab ${i === active ? 'active' : ''}`} onClick={() => setActive(i)}
+                onContextMenu={(e) => { e.preventDefault(); setTabMenu({ idx: i, x: e.clientX, y: e.clientY }); }}>
                 <span className="tab-title">{t.title}</span>
                 <span
                   className="tab-close"
@@ -1669,6 +1806,17 @@ function App() {
               </div>
             ))}
             <div className="tab tab-new" onClick={() => void newTab()}>＋</div>
+            {closedTabs.length > 0 && (
+              <div className="tab tab-new" title="恢复最近关闭的标签（Ctrl+Shift+T）" onClick={reopenClosedTab}>↺</div>
+            )}
+            {tabMenu && (
+              <div className="tab-menu" style={{ left: tabMenu.x, top: tabMenu.y + 8 }} onClick={() => setTabMenu(null)}>
+                <div className="tab-menu-item" onClick={() => closeTab(tabMenu.idx)}>关闭标签</div>
+                <div className="tab-menu-item" onClick={() => closeOtherTabs(tabMenu.idx)}>关闭其他标签</div>
+                <div className="tab-menu-item" onClick={closeAllTabs}>关闭所有标签</div>
+                {closedTabs.length > 0 && <div className="tab-menu-item" onClick={reopenClosedTab}>恢复最近关闭（{closedTabs.length}）</div>}
+              </div>
+            )}
           </div>
           <span className="spacer" />
           <button
@@ -1705,8 +1853,25 @@ function App() {
         {showProcMonitor && (<ProcessMonitorPanel onClose={() => setShowProcMonitor(false)} />)}
         {editorFile && (<FileEditorPanel filePath={editorFile} onClose={() => setEditorFile(null)} />)}
         {showFileTree && <FileTreePanel cwd={tab.cwd} onPick={(p) => setInput(`Read ${p}`)} onEdit={(p) => setEditorFile(p)} />}
-        <div className="log" ref={logRef}>
-          {tab.items.map((it, i) => {
+        <div className="log" ref={logRef}
+          onScroll={(e) => {
+            // 长会话窗口化：滚到顶部附近自动加载更早 200 条（保持视觉位置不跳动）
+            const el = e.currentTarget;
+            if (el.scrollTop < 80 && (logLimits[tab.sessionId ?? ''] ?? LOG_WINDOW) < tab.items.length) {
+              const prevHeight = el.scrollHeight;
+              setLogLimits((m) => ({ ...m, [tab.sessionId ?? '']: (m[tab.sessionId ?? ''] ?? LOG_WINDOW) + 200 }));
+              requestAnimationFrame(() => { el.scrollTop += el.scrollHeight - prevHeight; });
+            }
+          }}>
+          {(logLimits[tab.sessionId ?? ''] ?? LOG_WINDOW) < tab.items.length && (
+            <div className="log-load-more" onClick={() => {
+              const el = logRef.current;
+              const prevHeight = el?.scrollHeight ?? 0;
+              setLogLimits((m) => ({ ...m, [tab.sessionId ?? '']: (m[tab.sessionId ?? ''] ?? LOG_WINDOW) + 200 }));
+              requestAnimationFrame(() => { if (el) el.scrollTop += el.scrollHeight - prevHeight; });
+            }}>↑ 加载更早消息（还有 {tab.items.length - (logLimits[tab.sessionId ?? ''] ?? LOG_WINDOW)} 条）</div>
+          )}
+          {tab.items.slice(-(logLimits[tab.sessionId ?? ''] ?? LOG_WINDOW)).map((it, i) => {
             if (it.kind === 'user') {
               return (
                 <div className="msg user" key={i}>
@@ -1719,7 +1884,7 @@ function App() {
               return <ThinkingBlock key={i} item={it} active={tab.busy && i === tab.items.length - 1} />;
             }
             if (it.kind === 'assistant') {
-              return <AssistantMessage key={i} item={it} busy={tab.busy} isLast={i === tab.items.length - 1} />;
+              return <AssistantMessage key={i} item={it} busy={tab.busy} isLast={i === tab.items.length - 1} onRegenerate={() => void regenerate()} />;
             }
             if (it.kind === 'tool') {
               return <ToolCard key={i} item={it} />;
@@ -1731,16 +1896,14 @@ function App() {
             );
           })}
 
-          {/* 计划审批卡片 */}
+          {/* 计划审批卡片（R6-6：查看完整计划 + 添加计划） */}
           {tab.approval?.plan && (
-            <div className="card plan-card">
-              <div className="card-title">📋 实施计划（待批准）</div>
-              <pre className="plan-body">{tab.approval.plan}</pre>
-              <div className="card-actions">
-                <button className="primary" onClick={() => void respondApproval(true)}>批准并开始实施</button>
-                <button onClick={() => void respondApproval(false)}>拒绝</button>
-              </div>
-            </div>
+            <PlanApprovalCard
+              plan={tab.approval.plan}
+              busy={tab.busy}
+              onApprove={(note) => void respondApproval(true, false, note)}
+              onReject={() => void respondApproval(false)}
+            />
           )}
 
           {/* 普通审批条 */}
@@ -1748,6 +1911,10 @@ function App() {
             <div className="card approval-card">
               <div className="card-title">⚠ 需要批准：{tab.approval.name}</div>
               <div className="card-sub">{tab.approval.summary}</div>
+              {tab.approval.name.startsWith('Browser') && (
+                <div className="cua-note">🖥 计算机使用（CUA）：该操作将驱动内置浏览器页面，可在浏览器面板中实时观察并录制留证。批准后本次会话内同类操作可能不再询问（「始终允许」）。</div>
+              )}
+              <ApprovalDiffPreview name={tab.approval.name} args={tab.approval.args} />
               <div className="card-actions">
                 <button className="primary" onClick={() => void respondApproval(true)}>允许</button>
                 <button onClick={() => void respondApproval(true, true)}>始终允许 {tab.approval!.name}</button>
@@ -1840,7 +2007,7 @@ function App() {
 
         {/* 集成终端面板（对标 ZCode 终端面板：底部 bash，IPC 流式） */}
         {showBrowser && (
-          <BrowserPanel onClose={() => setShowBrowser(false)} />
+          <BrowserPanel directive={browserDirective} onClose={() => setShowBrowser(false)} />
         )}
         {showTerminal && (
           <TerminalPanel cwd={tab.cwd} fontFamily={uiSettings.terminalFontFamily || undefined} onClose={() => { void window.bajin.termStop(); setShowTerminal(false); }} />
@@ -1849,7 +2016,7 @@ function App() {
         {showShortcuts && <ShortcutsPanel onClose={() => setShowShortcuts(false)} />}
 
         {showGitPanel && gitStatus?.isRepo && (
-          <GitPanel status={gitStatus as never} onClose={() => setShowGitPanel(false)} onRefresh={() => refreshGitStatus()} />
+          <GitPanel status={gitStatus as never} sessionId={tab.sessionId} onClose={() => setShowGitPanel(false)} onRefresh={() => refreshGitStatus()} />
         )}
         {sessionSearch && (
           <div className="session-search-bar">
@@ -1937,6 +2104,7 @@ function App() {
       {showModelPicker && (
         <ModelPicker
           current={tab.model}
+          sessionId={tab.sessionId}
           models={models}
           providers={providers}
           onPick={(id) => { void changeModel(id); setShowModelPicker(false); }}
@@ -1945,6 +2113,95 @@ function App() {
         />
       )}
     </div>
+  );
+}
+
+/** 计划审批卡（R6-6）：长计划折叠+「查看完整计划」；批准前可「添加计划」补充要求 */
+function PlanApprovalCard({ plan, busy, onApprove, onReject }: { plan: string; busy: boolean; onApprove: (note: string) => void; onReject: () => void }): ReactNode {
+  const [expanded, setExpanded] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [note, setNote] = useState('');
+  const lines = plan.split('\n').length;
+  const long = shouldCollapsePlan(plan);
+  const shown = long && !expanded ? `${plan.slice(0, 1800)}…` : plan;
+  return (
+    <div className="card plan-card">
+      <div className="card-title">
+        📋 实施计划（待批准） <span className="log-meta">{lines} 行</span>
+        <span style={{ flex: 1 }} />
+        {long && (
+          <button className="msg-copy" onClick={() => setExpanded((v) => !v)}>{expanded ? '收起' : '查看完整计划'}</button>
+        )}
+      </div>
+      <pre className={`plan-body ${long && !expanded ? 'collapsed' : ''}`}>{shown}</pre>
+      {adding ? (
+        <div className="plan-add">
+          <textarea
+            value={note}
+            placeholder="补充要求（批准后作为追加指令发给会话，实施前并入计划）…"
+            onChange={(e) => setNote(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); onApprove(note); } }}
+          />
+          <div className="card-actions">
+            <button className="primary" disabled={busy} onClick={() => onApprove(note)}>批准并开始实施（含补充）</button>
+            <button onClick={() => setAdding(false)}>取消补充</button>
+            <button onClick={onReject}>拒绝</button>
+          </div>
+        </div>
+      ) : (
+        <div className="card-actions">
+          <button className="primary" disabled={busy} onClick={() => onApprove('')}>批准并开始实施</button>
+          <button onClick={() => { setAdding(true); setNote(''); }}>➕ 添加计划</button>
+          <button onClick={onReject}>拒绝</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 审批 diff 预览（R5-4）：Write/Edit 审批卡内直接看变更，拒绝盲批。
+ *  Edit：old_string vs new_string；Write：读现文件 vs 新内容。>200 行折叠为摘要。 */
+function ApprovalDiffPreview({ name, args }: { name: string; args?: Record<string, unknown> }): ReactNode {
+  const [diff, setDiff] = useState<Array<{ t: ' ' | '-' | '+'; line: string }> | null>(null);
+  const [state, setState] = useState<'loading' | 'ready' | 'none'>('loading');
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const fp = typeof args?.['file_path'] === 'string' ? String(args['file_path']) : '';
+      if (!fp) { if (alive) setState('none'); return; }
+      try {
+        if (name === 'Edit') {
+          const oldS = String(args?.['old_string'] ?? '');
+          const newS = String(args?.['new_string'] ?? '');
+          if (alive) { setDiff(lineDiff(oldS, newS)); setState('ready'); }
+        } else if (name === 'Write') {
+          const cur = await window.bajin.rpc('fs/read', { path: fp }).catch(() => null);
+          const prev = cur && typeof (cur as { content?: string }).content === 'string' ? String((cur as { content?: string }).content) : '';
+          const next = String(args?.['content'] ?? '');
+          if (alive) { setDiff(lineDiff(prev, next)); setState('ready'); }
+        } else {
+          if (alive) setState('none');
+        }
+      } catch {
+        if (alive) setState('none');
+      }
+    })();
+    return () => { alive = false; };
+  }, [name, args]);
+  if (state !== 'ready' || !diff) return null;
+  const changed = diff.filter((o) => o.t !== ' ').length;
+  if (changed === 0) return null;
+  const MAX_SHOW = 200;
+  const shown = diff.slice(0, MAX_SHOW);
+  return (
+    <details className="approval-diff">
+      <summary>变更预览（{changed} 处{changed > MAX_SHOW ? `，仅显示前 ${MAX_SHOW} 处` : ''}）</summary>
+      <pre className="diff">
+        {shown.map((o, k) => (
+          <span key={k} className={o.t === '+' ? 'dl-add' : o.t === '-' ? 'dl-del' : 'dl-ctx'}>{o.t === ' ' ? ' ' : o.t} {o.line}{'\n'}</span>
+        ))}
+      </pre>
+    </details>
   );
 }
 
@@ -1993,7 +2250,7 @@ function NotificationCenter({ notifications, open, unread, onToggle, onClear }: 
 /* ---------- 对话层组件（对标 ZCode：思考块/工具卡/进程面板） ---------- */
 
 /** 助手消息：复制 + 长消息展开/收起（对标 chat.message.copy/expand/collapse） */
-function AssistantMessage({ item, busy, isLast }: { item: Extract<Item, { kind: 'assistant' }>; busy: boolean; isLast: boolean }): ReactNode {
+function AssistantMessage({ item, busy, isLast, onRegenerate }: { item: Extract<Item, { kind: 'assistant' }>; busy: boolean; isLast: boolean; onRegenerate?: () => void }): ReactNode {
   const [expanded, setExpanded] = useState(false);
   const streaming = busy && isLast && !item.text;
   const long = item.text.length > 1500;
@@ -2007,6 +2264,10 @@ function AssistantMessage({ item, busy, isLast }: { item: Extract<Item, { kind: 
         )}
         {item.text && (
           <button className="msg-copy" title="复制" onClick={() => void navigator.clipboard.writeText(item.text).catch(() => undefined)}>复制</button>
+        )}
+        {/* 最后一条完整回复且空闲时显示「重新生成」：回退一轮重发（R5-3） */}
+        {!busy && isLast && item.text && onRegenerate && (
+          <button className="msg-copy" title="回退本轮重新生成" onClick={onRegenerate}>↻ 重新生成</button>
         )}
       </div>
       <div className="body md">{item.text ? renderMarkdown(shown) : streaming ? <span className="cursor">▍</span> : null}</div>
@@ -2426,7 +2687,54 @@ function ProcessMonitorPanel({ onClose }: { onClose: () => void }): ReactNode {
   );
 }
 
-function GitPanel({ status, onClose, onRefresh }: { status: { branch: string; staged: number; unstaged: number; dirtyFiles: string[]; recentCommits: Array<{ hash: string; message: string }>; diffStat: string }; onClose: () => void; onRefresh: () => void }): ReactNode {
+/** 撤销本轮文件改动（R7-5，对标 ZCode 可安全撤销）：dry-run 预览 → 确认执行 */
+function SessionRevert({ sessionId, onReverted }: { sessionId: string | null; onReverted: () => void }): ReactNode {
+  const [touched, setTouched] = useState<Array<string>>([]);
+  const [plan, setPlan] = useState<{ safe: Array<{ path: string }>; risky: Array<{ path: string; action: string; reason: string }> } | null>(null);
+  const [msg, setMsg] = useState('');
+  const refresh = useCallback(() => {
+    if (!sessionId) { setTouched([]); return; }
+    void window.bajin.rpc<{ files: string[] }>('session/touched-files', { sessionId })
+      .then((r) => setTouched(r.files ?? []))
+      .catch(() => setTouched([]));
+  }, [sessionId]);
+  useEffect(refresh, [refresh]);
+  if (!touched.length) return null;
+  async function preview(): Promise<void> {
+    if (!sessionId) return;
+    const r = await window.bajin.rpc<{ safe: Array<{ path: string }>; risky: Array<{ path: string; action: string; reason: string }> }>('session/revert-files', { sessionId, dryRun: true });
+    setPlan(r);
+  }
+  async function apply(): Promise<void> {
+    if (!sessionId) return;
+    const r = await window.bajin.rpc<{ done: string[]; skipped: string[]; remaining: Array<{ action: string }> }>('session/revert-files', { sessionId, confirmDelete: true });
+    setMsg(`已撤销 ${r.done.length} 个文件${r.skipped.length ? `，跳过 ${r.skipped.length} 个` : ''}${r.remaining.length ? `；${r.remaining.length} 个需人工处理（暂存/重命名）` : ''}`);
+    setPlan(null);
+    refresh();
+    onReverted();
+  }
+  return (
+    <div className="git-section session-revert">
+      <div className="settings-nav-group-title">↩ 本轮文件改动（{touched.length}）</div>
+      <div className="settings-desc" style={{ marginBottom: 6 }}>本会话工具改过 {touched.length} 个文件，可按 git 状态安全撤销。</div>
+      {plan && (
+        <div className="revert-plan">
+          {plan.safe.length > 0 && <div className="log-meta">✓ 可安全撤销 {plan.safe.length}：{plan.safe.slice(0, 5).map((x) => x.path.split('/').pop()).join('、')}{plan.safe.length > 5 ? '…' : ''}</div>}
+          {plan.risky.length > 0 && <div className="log-meta" style={{ color: 'var(--warn)' }}>⚠ 需注意 {plan.risky.length}：{plan.risky.slice(0, 3).map((x) => `${x.path.split('/').pop()}（${x.reason}）`).join('；')}{plan.risky.length > 3 ? '…' : ''}</div>}
+        </div>
+      )}
+      <div className="card-actions">
+        {!plan
+          ? <button onClick={() => void preview()}>预览撤销</button>
+          : <button className="primary" onClick={() => void apply()}>确认撤销（含删除本会话新建文件）</button>}
+        {plan && <button onClick={() => setPlan(null)}>取消</button>}
+      </div>
+      {msg && <div className="log-meta">{msg}</div>}
+    </div>
+  );
+}
+
+function GitPanel({ status, sessionId, onClose, onRefresh }: { status: { branch: string; staged: number; unstaged: number; dirtyFiles: string[]; recentCommits: Array<{ hash: string; message: string }>; diffStat: string }; sessionId: string | null; onClose: () => void; onRefresh: () => void }): ReactNode {
   return (
     <div className="git-panel">
       <div className="ft-head">
@@ -2437,6 +2745,7 @@ function GitPanel({ status, onClose, onRefresh }: { status: { branch: string; st
         <button className="icon-btn" onClick={onClose}>×</button>
       </div>
       <div className="git-panel-body">
+        <SessionRevert sessionId={sessionId} onReverted={onRefresh} />
         {status.dirtyFiles.length > 0 && (
           <div className="git-section">
             <div className="settings-nav-group-title">{t('变更文件')} ({status.dirtyFiles.length})</div>
@@ -2460,9 +2769,24 @@ function GitPanel({ status, onClose, onRefresh }: { status: { branch: string; st
   );
 }
 
-function BrowserPanel({ onClose }: { onClose: () => void }): ReactNode {
+/** 浏览器面板（对标 ZCode 内置浏览器）：URL + 视口预设/自由尺寸 + 缩放（R6） */
+function BrowserPanel({ directive, onClose }: { directive: { url?: string; viewport?: { width: number; height: number }; zoom?: number; action?: 'click' | 'type'; selector?: string; text?: string; seq?: number } | null; onClose: () => void }): ReactNode {
   const [url, setUrl] = useState('');
   const [loaded, setLoaded] = useState('');
+  const [vw, setVw] = useState(1280);
+  const [vh, setVh] = useState(800);
+  const [zoom, setZoom] = useState(1);
+  const [loadError, setLoadError] = useState(''); // R6-3：did-fail-load / 规范化失败提示
+  const [reloadKey, setReloadKey] = useState(0);
+  // R6-4 屏幕录制：webm 留档 + 回放
+  const [recording, setRecording] = useState(false);
+  const [recSecs, setRecSecs] = useState(0);
+  const [records, setRecords] = useState<Array<{ name: string; size: number; mtimeMs: number }>>([]);
+  const [playUrl, setPlayUrl] = useState<string | null>(null);
+  // R7-6：内容时效 chip（面板打开期间每 5s 刷新；>5 分钟标陈旧提示重开页面）
+  const [contentAge, setContentAge] = useState<number | null>(null);
+  const recorderRef = useRef<{ stop: () => void } | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   // Electron 环境（有 process.versions.electron）用 <webview>；浏览器用 <iframe>
   const isElectron = typeof process !== 'undefined' && process.versions?.electron;
   const webviewRef = useRef<Electron.WebviewTag>(null);
@@ -2477,18 +2801,221 @@ function BrowserPanel({ onClose }: { onClose: () => void }): ReactNode {
       setLoaded(url); // 浏览器模式：iframe src 直接生效
     }
   }, [url, isElectron]);
+  // 工具指令（BrowserNavigate 事件）：应用 URL/视口/缩放
+  useEffect(() => {
+    if (!directive) return;
+    if (directive.url) setUrl(directive.url);
+    if (directive.viewport) { setVw(directive.viewport.width); setVh(directive.viewport.height); }
+    if (directive.zoom != null) setZoom(directive.zoom);
+  }, [directive]);
+  // CUA 动作（R6-5/R7-2）：点击/键入由面板页面执行；结果回填 app-server（工具不再盲报成功）。
+  // Electron webview executeJavaScript 可跨域执行；web 模式 iframe 受同源限制——诚实上报失败原因。
+  useEffect(() => {
+    if (!directive?.action || !directive.selector) return;
+    const { action, selector, text, seq } = directive;
+    const report = (ok: boolean, reason?: string): void => {
+      setLoadError(ok ? '' : `CUA 失败：${reason ?? selector}`);
+      if (seq !== undefined) void window.bajin.rpc('browser/action-result', { seq, ok, reason }).catch(() => undefined);
+    };
+    const js = action === 'click'
+      ? `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (el) { el.click(); return true; } return false; })()`
+      : `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return false;
+          el.focus(); el.value = ${JSON.stringify(text ?? '')};
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          return true; })()`;
+    if (isElectron) {
+      void webviewRef.current?.executeJavaScript(js)
+        .then((hit: unknown) => { report(Boolean(hit), hit ? undefined : `元素未命中 ${selector}`); })
+        .catch((e: unknown) => report(false, `执行失败: ${e instanceof Error ? e.message : String(e)}`));
+    } else {
+      try {
+        const frame = document.querySelector<HTMLIFrameElement>('.browser-view');
+        const doc = frame?.contentDocument; // 同源才可访问；跨域抛错/null 走失败上报
+        const el = doc?.querySelector(selector);
+        if (!el) { report(false, '跨域受限或元素未命中（web 模式 iframe 同源策略；跨站操作请在桌面端进行）'); return; }
+        if (action === 'click') (el as HTMLElement).click();
+        else {
+          const input = el as HTMLInputElement;
+          input.focus(); input.value = text ?? '';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        report(true);
+      } catch {
+        report(false, '跨域受限（web 模式 iframe 同源策略；跨站操作请在桌面端进行）');
+      }
+    }
+  }, [directive]);
+  // 状态回读（R6-2）：页面加载完成后把 URL/文本推给 app-server（BrowserContent 工具读真实面板）。
+  // Electron webview 可读跨域页 innerText；web 模式 iframe 受同源限制，只报 URL。
+  function refreshRecords(): void {
+    void window.bajin.rpc<{ recordings: Array<{ name: string; size: number; mtimeMs: number }> }>('browser/record-list')
+      .then((r) => setRecords(r.recordings ?? []))
+      .catch(() => undefined);
+  }
+  useEffect(() => { refreshRecords(); }, []);
+  useEffect(() => {
+    const t = setInterval(() => {
+      void window.bajin.rpc<{ content: string | null; updatedAt: number }>('browser/state-get')
+        .then((r) => setContentAge(r.content != null ? Date.now() - Number(r.updatedAt) : null))
+        .catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(t);
+  }, []);
+  /** 屏幕录制（R6-4）：getDisplayMedia + MediaRecorder(webm)，停止后 base64 存 app-server，≤50MB */
+  async function toggleRecord(): Promise<void> {
+    if (recording) {
+      recorderRef.current?.stop();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false });
+      const rec = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : '' });
+      chunksRef.current = [];
+      rec.ondataavailable = (e: BlobEvent): void => { if (e.data.size) chunksRef.current.push(e.data); };
+      rec.onstop = (): void => {
+        stream.getTracks().forEach((tr) => tr.stop());
+        setRecording(false);
+        const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+        if (blob.size > 50 * 1024 * 1024) { setLoadError(`录制 ${Math.round(blob.size / 1048576)}MB 超 50MB 上限，未保存`); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          const b64 = String(reader.result ?? '').split(',')[1] ?? '';
+          void window.bajin.rpc('browser/record-save', { name: `panel-${new Date().toISOString().slice(0, 19)}`, dataBase64: b64 })
+            .then(() => { setLoadError(''); refreshRecords(); })
+            .catch((e2: unknown) => setLoadError(`录制保存失败: ${e2 instanceof Error ? e2.message : String(e2)}`));
+        };
+        reader.readAsDataURL(blob);
+      };
+      recorderRef.current = rec;
+      setRecSecs(0);
+      rec.start(1000);
+      setRecording(true);
+    } catch (e) {
+      setLoadError(`无法开始录制: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  // 录制计时
+  useEffect(() => {
+    if (!recording) return;
+    const t = setInterval(() => setRecSecs((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [recording]);
+
+  function reportState(u: string): void {
+    if (!u || !u.startsWith('http')) return;
+    if (isElectron) {
+      void webviewRef.current?.executeJavaScript('document.body ? document.body.innerText : ""')
+        .then((text: unknown) => {
+          void window.bajin.rpc('browser/state', { url: u, content: String(text ?? '').slice(0, 20000) }).catch(() => undefined);
+        })
+        .catch(() => {
+          void window.bajin.rpc('browser/state', { url: u }).catch(() => undefined);
+        });
+    } else {
+      void window.bajin.rpc('browser/state', { url: u }).catch(() => undefined);
+    }
+  }
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => reportState(loaded), 600); // 等 DOM 稳定再取文本
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+  // 缩放应用到 webview（iframe 用 CSS zoom）；Electron 类型定义 setZoomFactor 返回 void
+  useEffect(() => {
+    if (isElectron) webviewRef.current?.setZoomFactor(zoom);
+  }, [zoom, loaded, isElectron]);
+  // webview 加载失败（React 不认 <webview> 自定义事件，手动监听）
+  useEffect(() => {
+    if (!isElectron) return;
+    const wv = webviewRef.current;
+    if (!wv) return;
+    const onFail = (e: Event): void => {
+      const code = (e as Event & { errorCode?: number }).errorCode;
+      setLoadError(`加载失败${code ? `（${code}）` : ''}— 可点 ⟳ 重试或 ↗ 外链打开`);
+    };
+    wv.addEventListener('did-fail-load', onFail);
+    return () => { wv.removeEventListener('did-fail-load', onFail); };
+  }, [isElectron, reloadKey]);
   return (
     <div className="browser-panel">
       <div className="browser-head">
-        <span className="browser-url">{loaded || url || '浏览器'}</span>
-        <input className="browser-input" value={url} placeholder="输入 URL…" onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && url.trim()) setUrl(url.trim()); }} />
+        <span className="browser-url">
+          {loaded || url || '浏览器'}
+          {contentAge != null && (
+            <span className={`content-age ${contentAge > 300_000 ? 'stale' : ''}`} title="面板内容更新距今">
+              {contentAge > 300_000 ? `⚠ ${Math.round(contentAge / 60000)} 分钟前` : `${Math.round(contentAge / 1000)}s`}
+            </span>
+          )}
+        </span>
+        <input className="browser-input" value={url} placeholder="输入 URL…" onChange={(e) => { setUrl(e.target.value); setLoadError(''); }}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' || !url.trim()) return;
+            const n = normalizeBrowserUrl(url);
+            if (n.ok) { setUrl(n.url); setLoadError(''); }
+            else setLoadError(n.reason);
+          }} />
+        <button className="icon-btn" title="桌面视口 1280×800" onClick={() => { setVw(1280); setVh(800); }}>🖥</button>
+        <button className="icon-btn" title="移动视口 390×844" onClick={() => { setVw(390); setVh(844); }}>📱</button>
+        <input className="browser-vp" type="number" min={200} max={3840} value={vw} title="视口宽（px）" onChange={(e) => setVw(Math.max(200, Math.min(3840, Number(e.target.value) || 1280)))} />
+        <span className="log-meta">×</span>
+        <input className="browser-vp" type="number" min={200} max={4320} value={vh} title="视口高（px）" onChange={(e) => setVh(Math.max(200, Math.min(4320, Number(e.target.value) || 800)))} />
+        <button className="icon-btn" title="缩小" onClick={() => setZoom((z) => Math.max(0.25, Math.round((z - 0.25) * 100) / 100))}>−</button>
+        <span className="log-meta" title="缩放">{Math.round(zoom * 100)}%</span>
+        <button className="icon-btn" title="放大" onClick={() => setZoom((z) => Math.min(5, Math.round((z + 0.25) * 100) / 100))}>＋</button>
+        <button className="icon-btn" title="重试（重新加载当前页）" onClick={() => {
+          if (!loaded) return;
+          setLoadError('');
+          if (isElectron) webviewRef.current?.reload();
+          setReloadKey((k) => k + 1); // iframe 重挂；webview 兜底
+        }}>⟳</button>
+        <button className={`icon-btn ${recording ? 'rec-on' : ''}`} title={recording ? `停止录制（已录 ${recSecs}s）` : '屏幕录制（webm，存档可回放）'} onClick={() => void toggleRecord()}>
+          {recording ? `■ ${recSecs}s` : '●'}
+        </button>
+        {records.length > 0 && (
+          <button className="icon-btn" title={`录制存档（${records.length}）`} onClick={() => setPlayUrl('__LIST__')}>🎬</button>
+        )}
+        <button className="icon-btn" title="在默认浏览器中打开" onClick={() => {
+          const n = normalizeBrowserUrl(loaded || url);
+          if (!n.ok) { setLoadError(n.reason); return; }
+          if (isElectron) void window.bajin.browserOpenExternal?.(n.url);
+          else window.open(n.url, '_blank', 'noopener');
+        }}>↗</button>
         <button className="icon-btn" onClick={onClose}>×</button>
       </div>
-      {isElectron ? (
-        <webview ref={webviewRef} className="browser-view" src={url || 'about:blank'} allowpopups={true} />
-      ) : (
-        <iframe className="browser-view" src={url || 'about:blank'} sandbox="allow-scripts allow-same-origin allow-forms" title="browser" />
+      {loadError && <div className="browser-err">⚠ {loadError}</div>}
+      <div className="browser-stage" key={reloadKey}>
+        {isElectron ? (
+          <webview ref={webviewRef} className="browser-view" style={{ width: vw, height: vh }} src={url || 'about:blank'} allowpopups={true} />
+        ) : (
+          <iframe className="browser-view" style={{ width: vw, height: vh, zoom }} src={url || 'about:blank'} sandbox="allow-scripts allow-same-origin allow-forms" title="browser" />
+        )}
+      </div>
+      {playUrl && (
+        <div className="rec-overlay" onClick={() => { if (playUrl !== '__LIST__') setPlayUrl(null); }}>
+          {playUrl === '__LIST__' ? (
+            <div className="rec-list" onClick={(e) => e.stopPropagation()}>
+              <div className="rec-list-head">录制存档 <span style={{ flex: 1 }} /><button className="icon-btn" onClick={() => setPlayUrl(null)}>×</button></div>
+              {records.map((r) => (
+                <div key={r.name} className="rec-item">
+                  <span className="rec-name" title={r.name}>{new Date(r.mtimeMs).toLocaleString()}</span>
+                  <span className="log-meta">{(r.size / 1048576).toFixed(1)}MB</span>
+                  <button className="primary" onClick={() => {
+                    void window.bajin.rpc<{ dataBase64: string }>('browser/record-read', { name: r.name }).then((res) => {
+                      const bin = atob(res.dataBase64);
+                      const bytes = new Uint8Array(bin.length);
+                      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+                      setPlayUrl(URL.createObjectURL(new Blob([bytes], { type: 'video/webm' })));
+                    }).catch((e: unknown) => setLoadError(`读取录制失败: ${e instanceof Error ? e.message : String(e)}`));
+                  }}>▶</button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <video className="rec-video" src={playUrl} controls autoPlay onClick={(e) => e.stopPropagation()} />
+          )}
+        </div>
       )}
     </div>
   );
@@ -2562,8 +3089,9 @@ function TerminalPanel({ cwd, onClose, fontFamily }: { cwd?: string; onClose: ()
 
 /* ---------- 模型切换弹窗 ---------- */
 
-function ModelPicker({ current, models, providers, onPick, onManage, onClose }: {
+function ModelPicker({ current, sessionId, models, providers, onPick, onManage, onClose }: {
   current: string;
+  sessionId: string | null;
   models: ModelOpt[];
   providers: ProviderInfo[];
   onPick: (id: string) => void;
@@ -2619,10 +3147,50 @@ function ModelPicker({ current, models, providers, onPick, onManage, onClose }: 
           )}
           {!custom.length && !builtin.length && <div className="history-empty" style={{ padding: '20px 18px' }}>未找到匹配模型</div>}
         </div>
+        <ModelAdvancedParams sessionId={sessionId} />
         <div className="model-picker-foot">
           <button onClick={onManage}>管理模型</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** 模型高级参数（R5-6）：temperature / top_p / 最大输出，session/set-params 即时生效 */
+function ModelAdvancedParams({ sessionId }: { sessionId: string | null }): ReactNode {
+  const [open, setOpen] = useState(false);
+  const [temperature, setTemperature] = useState('');
+  const [topP, setTopP] = useState('');
+  const [maxTokens, setMaxTokens] = useState('');
+  const [msg, setMsg] = useState('');
+  function apply(): void {
+    const params: Record<string, number> = {};
+    const t = parseFloat(temperature);
+    const p = parseFloat(topP);
+    const m = parseInt(maxTokens, 10);
+    if (!Number.isNaN(t)) params['temperature'] = t;
+    if (!Number.isNaN(p)) params['topP'] = p;
+    if (!Number.isNaN(m)) params['maxTokens'] = m;
+    if (!Object.keys(params).length) { setMsg('未填写任何参数'); return; }
+    if (!sessionId) { setMsg('会话未就绪'); return; }
+    void window.bajin.rpc('session/set-params', { sessionId, ...params })
+      .then(() => setMsg('✓ 已应用（下次请求生效）'))
+      .catch((e: unknown) => setMsg(`✗ ${e instanceof Error ? e.message : String(e)}`));
+  }
+  return (
+    <div className="mp-advanced">
+      <div className="mp-advanced-toggle clickable" onClick={() => setOpen((v) => !v)}>{open ? '▾' : '▸'} 高级参数（temperature / top_p / 最大输出）</div>
+      {open && (
+        <div className="mp-advanced-body">
+          <label>temperature <input value={temperature} placeholder="0–2，如 0.7" onChange={(e) => setTemperature(e.target.value)} /></label>
+          <label>top_p <input value={topP} placeholder="0–1，如 0.9" onChange={(e) => setTopP(e.target.value)} /></label>
+          <label>最大输出 tokens <input value={maxTokens} placeholder="如 8192" onChange={(e) => setMaxTokens(e.target.value)} /></label>
+          <div className="mp-advanced-row">
+            <button className="primary" onClick={apply}>应用</button>
+            {msg && <span className="log-meta">{msg}</span>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -3171,6 +3739,52 @@ function AgentMemorySection(): ReactNode {
   );
 }
 
+/** 插件市场（R5-8）：内置目录卡片 + 任意 git 仓库安装（clone → installPlugin） */
+function PluginMarketplace({ onInstalled }: { onInstalled: () => void }): ReactNode {
+  const [catalog, setCatalog] = useState<Array<{ name: string; desc: string; icon: string; repo: string; subdir: string }>>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState('');
+  const [customRepo, setCustomRepo] = useState('');
+  const [customName, setCustomName] = useState('');
+  useEffect(() => {
+    void window.bajin.rpc<{ catalog: typeof catalog }>('plugins/marketplace')
+      .then((r) => setCatalog(r.catalog ?? []))
+      .catch(() => setCatalog([]));
+  }, []);
+  async function install(item: { name: string; repo: string; subdir?: string }): Promise<void> {
+    setBusy(item.name); setMsg('');
+    try {
+      await window.bajin.rpc('plugins/marketplace-install', { repo: item.repo, subdir: item.subdir, name: item.name });
+      setMsg(`✓ ${item.name} 安装成功`);
+      onInstalled();
+    } catch (e) {
+      setMsg(`✗ ${e instanceof Error ? e.message : String(e)}`);
+    }
+    setBusy(null);
+  }
+  return (
+    <div className="card flat" style={{ marginBottom: 10 }}>
+      <div className="settings-row" style={{ borderBottom: '1px solid var(--border)' }}>
+        <span>🛒 {t('插件市场')}<span className="settings-desc">{t('从 git 仓库一键安装（clone 后落入 ~/.bajin/plugins/）')}</span></span>
+      </div>
+      {catalog.map((c) => (
+        <div key={c.name} className="settings-row">
+          <span>{c.icon} {c.name}<span className="settings-desc">{c.desc}</span></span>
+          <button className="primary" disabled={busy !== null} onClick={() => void install(c)}>{busy === c.name ? '安装中…' : '安装'}</button>
+        </div>
+      ))}
+      <div className="settings-row">
+        <span>
+          <input className="mkt-input" placeholder="git 仓库 https://..." value={customRepo} onChange={(e) => setCustomRepo(e.target.value)} />
+          <input className="mkt-input" placeholder="插件名" value={customName} onChange={(e) => setCustomName(e.target.value)} />
+        </span>
+        <button disabled={busy !== null || !customRepo.trim() || !customName.trim()} onClick={() => void install({ name: customName.trim(), repo: customRepo.trim() })}>安装</button>
+      </div>
+      {msg && <div className="settings-row"><span className="log-meta">{msg}</span></div>}
+    </div>
+  );
+}
+
 function AgentPluginsSection(): ReactNode {
   const [plugins, setPlugins] = useState<Array<{ name: string; description: string; version: string; enabled: boolean; skills: string[]; commands: string[] }>>([]);
   const refresh = useCallback(() => {
@@ -3184,6 +3798,7 @@ function AgentPluginsSection(): ReactNode {
   return (
     <div className="vp-inner">
       <h2>{t('插件')} <span className="log-meta">{plugins.length}</span></h2>
+      <PluginMarketplace onInstalled={refresh} />
       <div className="card flat">
         {plugins.length === 0 ? (
           <div className="settings-row">
@@ -3349,10 +3964,10 @@ function HooksCard(): ReactNode {
 }
 
 /** MCP 服务器管理卡（对标 ZCode mcpServers：stdio/sse 配置 CRUD；agent 运行时接入下一批） */
-interface McpEntry { type: 'stdio' | 'sse'; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string> }
+interface McpEntry { type: 'stdio' | 'sse' | 'http'; command?: string; args?: string[]; env?: Record<string, string>; url?: string; headers?: Record<string, string> }
 function McpCard(): ReactNode {
   const [servers, setServers] = useState<Record<string, McpEntry>>({});
-  const [form, setForm] = useState<{ name: string; type: 'stdio' | 'sse'; command: string; args: string; url: string }>({ name: '', type: 'stdio', command: '', args: '', url: '' });
+  const [form, setForm] = useState<{ name: string; type: 'stdio' | 'sse' | 'http'; command: string; args: string; url: string }>({ name: '', type: 'stdio', command: '', args: '', url: '' });
   const [msg, setMsg] = useState('');
 
   const reload = useCallback(() => {
@@ -3369,10 +3984,10 @@ function McpCard(): ReactNode {
     const name = form.name.trim();
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(name)) { setMsg('名称需匹配 ^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$'); return; }
     if (form.type === 'stdio' && !form.command.trim()) { setMsg('stdio 需要 command'); return; }
-    if (form.type === 'sse' && !form.url.trim()) { setMsg('sse 需要 URL'); return; }
+    if ((form.type === 'sse' || form.type === 'http') && !form.url.trim()) { setMsg('需要 URL'); return; }
     const entry: McpEntry = form.type === 'stdio'
       ? { type: 'stdio', command: form.command.trim(), args: form.args.trim() ? form.args.trim().split(/\s+/) : undefined }
-      : { type: 'sse', url: form.url.trim() };
+      : { type: form.type === 'http' ? 'http' : 'sse', url: form.url.trim() };
     await saveServers({ ...servers, [name]: entry });
     setForm({ name: '', type: 'stdio', command: '', args: '', url: '' });
     setMsg('已保存');
@@ -3401,9 +4016,10 @@ function McpCard(): ReactNode {
         )}
         <div className="hook-form">
           <input placeholder="名称 *" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as 'stdio' | 'sse' })}>
+          <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as 'stdio' | 'sse' | 'http' })}>
             <option value="stdio">stdio</option>
             <option value="sse">sse</option>
+            <option value="http">streamable http</option>
           </select>
           {form.type === 'stdio' ? (
             <>
@@ -3411,7 +4027,7 @@ function McpCard(): ReactNode {
               <input placeholder="args（空格分隔）" value={form.args} onChange={(e) => setForm({ ...form, args: e.target.value })} />
             </>
           ) : (
-            <input placeholder="URL（https://host/sse）*" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
+            <input placeholder="URL（sse 或 streamable http 端点）*" value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} />
           )}
           <button className="primary" onClick={() => void add()}>添加</button>
           {msg && <span className="form-msg">{msg}</span>}
@@ -4342,4 +4958,47 @@ function AskInput({ onSubmit, placeholder }: { onSubmit: (v: string) => void; pl
   );
 }
 
-createRoot(document.getElementById('root')!).render(<App />);
+/**
+ * 渲染层错误边界（R5 稳定性防线）：任何组件崩溃不再整页白屏。
+ * 顶栏级骨架保留 + 错误卡片（摘要 + 完整栈可展开）+「重载界面」。
+ * 此前 BrowserPanel 的 webview loadURL 崩溃若有此防线，最多丢一块面板。
+ */
+class ErrorBoundary extends ReactComponent<{ children: ReactNode }, { error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error('[bajin] 渲染层崩溃:', error, info.componentStack ?? '');
+  }
+  render(): ReactNode {
+    if (!this.state.error) return this.props.children;
+    const e = this.state.error;
+    return (
+      <div className="crash-screen">
+        <div className="crash-card">
+          <div className="crash-title">⚠ 界面渲染出错</div>
+          <div className="crash-text">{e.message || String(e)}</div>
+          <details className="crash-stack">
+            <summary>错误详情</summary>
+            <pre>{e.stack ?? String(e)}</pre>
+          </details>
+          <div className="card-actions">
+            <button className="primary" onClick={() => window.location.reload()}>重载界面</button>
+            <button onClick={() => this.setState({ error: null })}>尝试恢复</button>
+          </div>
+          <div className="crash-meta">bajin 0.1.0 · 会话数据不受影响（已实时持久化）</div>
+        </div>
+      </div>
+    );
+  }
+}
+
+createRoot(document.getElementById('root')!).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>,
+);

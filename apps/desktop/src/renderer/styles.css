@@ -1589,3 +1589,143 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
   font-size: 12px; cursor: pointer; transition: border-color .12s;
 }
 .share-btn:hover { border-color: var(--accent); color: var(--text); }
+
+/* 渲染层崩溃兜底（ErrorBoundary） */
+.crash-screen {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg);
+}
+.crash-card {
+  width: min(520px, 90vw); background: var(--panel);
+  border: 1px solid var(--err); border-radius: 10px; padding: 20px;
+}
+.crash-title { font-size: 15px; font-weight: 600; color: var(--err); margin-bottom: 8px; }
+.crash-text { font-size: 13px; color: var(--text); word-break: break-all; }
+.crash-stack { margin: 10px 0; font-size: 11.5px; }
+.crash-stack pre {
+  color: var(--dim); background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px; max-height: 180px; overflow: auto; margin: 6px 0 0;
+}
+.crash-meta { margin-top: 10px; font-size: 11.5px; color: var(--dim); }
+
+/* 虚拟滚动加载更早/更多入口 */
+.log-load-more {
+  text-align: center; font-size: 12px; color: var(--dim);
+  padding: 6px 0 10px; cursor: pointer; user-select: none;
+}
+.log-load-more:hover { color: var(--accent); }
+
+/* 审批卡内 diff 预览（R5-4） */
+.approval-diff { margin: 6px 0; font-size: 12px; }
+.approval-diff summary { cursor: pointer; color: var(--accent); }
+.approval-diff pre.diff {
+  max-height: 260px; overflow: auto; margin: 6px 0 0;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px;
+  font: 11.5px/1.5 ui-monospace, monospace;
+}
+
+/* 聊天代码块着色层（markdown.ts，R5-5）——复用编辑器 token 配色 */
+.codeblock pre.code-hl { color: var(--text-soft); }
+
+/* 模型选择弹窗高级参数（R5-6） */
+.mp-advanced { border-top: 1px solid var(--border); }
+.mp-advanced-toggle { padding: 6px 16px; font-size: 12px; color: var(--dim); cursor: pointer; user-select: none; }
+.mp-advanced-toggle:hover { color: var(--accent); }
+.mp-advanced-body { padding: 0 16px 10px; display: flex; flex-direction: column; gap: 6px; }
+.mp-advanced-body label { font-size: 12px; color: var(--text-soft); display: flex; align-items: center; gap: 8px; }
+.mp-advanced-body input {
+  flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); padding: 3px 8px; font-size: 12px; outline: none;
+}
+.mp-advanced-body input:focus { border-color: var(--accent); }
+.mp-advanced-row { display: flex; align-items: center; gap: 8px; }
+
+/* 插件市场（R5-8） */
+.mkt-input {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); padding: 3px 8px; font-size: 12px; width: 180px; outline: none; margin-right: 6px;
+}
+.mkt-input:focus { border-color: var(--accent); }
+
+/* 浏览器面板舞台（R6 视口控制）：居中放置固定尺寸视口，超出滚动 */
+.browser-stage {
+  flex: 1; min-height: 0; overflow: auto;
+  display: flex; align-items: flex-start; justify-content: center;
+  background: var(--bg); padding: 8px;
+}
+.browser-vp {
+  width: 56px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text); font-size: 11.5px; padding: 2px 4px; text-align: center; outline: none;
+}
+.browser-vp:focus { border-color: var(--accent); }
+
+/* 浏览器面板错误提示（R6-3） */
+.browser-err {
+  padding: 4px 12px; font-size: 12px; color: var(--err);
+  background: rgba(221, 104, 115, 0.08); border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+/* 屏幕录制（R6-4） */
+.icon-btn.rec-on { color: var(--err); animation: pulse 1s infinite alternate; }
+.rec-overlay {
+  position: absolute; inset: 0; z-index: 50;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex; align-items: center; justify-content: center;
+}
+.rec-video { max-width: 92%; max-height: 92%; border-radius: 8px; background: #000; }
+.rec-list {
+  width: min(420px, 90%); max-height: 70%; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--border-strong); border-radius: 8px;
+  padding: 8px;
+}
+.rec-list-head { display: flex; align-items: center; gap: 6px; font-size: 13px; padding: 2px 6px 8px; }
+.rec-item { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-top: 1px solid var(--border); }
+.rec-name { flex: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* CUA 审批提示（R6-5） */
+.cua-note {
+  margin: 6px 0; padding: 8px 10px; font-size: 12px; color: var(--warn);
+  background: rgba(250, 200, 88, 0.08); border: 1px solid var(--border);
+  border-radius: 6px; line-height: 1.5;
+}
+
+/* 计划卡折叠态（R6-6 查看完整计划） */
+.plan-body.collapsed {
+  max-height: 240px; overflow: hidden; position: relative;
+  mask-image: linear-gradient(to bottom, #000 78%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 78%, transparent);
+}
+.plan-add { margin-top: 6px; }
+.plan-add textarea {
+  width: 100%; min-height: 64px; resize: vertical;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--text); font: 12.5px/1.6 inherit; padding: 8px 10px; outline: none;
+  box-sizing: border-box;
+}
+.plan-add textarea:focus { border-color: var(--accent); }
+
+/* 撤销本轮文件改动（R7-5） */
+.session-revert { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--panel-2); }
+.revert-plan { margin: 4px 0; display: flex; flex-direction: column; gap: 2px; }
+
+/* 面板内容时效 chip（R7-6） */
+.content-age {
+  margin-left: 6px; font-size: 10.5px; color: var(--dim);
+  border: 1px solid var(--border); border-radius: var(--r-pill); padding: 0 5px;
+}
+.content-age.stale { color: var(--warn); border-color: var(--warn); }
+
+/* 标签右键菜单（R8-3） */
+.tab-menu {
+  position: fixed; z-index: 400; min-width: 160px;
+  background: var(--panel); border: 1px solid var(--border-strong);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  padding: 4px; user-select: none;
+}
+.tab-menu-item {
+  padding: 6px 10px; font-size: 12.5px; color: var(--text-soft);
+  border-radius: 5px; cursor: pointer;
+}
+.tab-menu-item:hover { background: var(--panel-2); color: var(--text); }

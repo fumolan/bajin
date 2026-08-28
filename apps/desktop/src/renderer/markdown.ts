@@ -1,10 +1,20 @@
 import { createElement, type ReactNode, useState, useCallback } from 'react';
+import { highlightCode, type HighlightLang } from './highlight.js';
 
 /**
  * 迷你 markdown 渲染器（无第三方依赖，React 节点构造，天然防注入）。
- * 支持：围栏代码块（语言标签+复制）、标题、无序/有序列表、引用、分隔线、
- * 行内 code / **bold** / [text](url)（链接按纯文本展示）。
+ * 支持：围栏代码块（语言标签+着色+复制）、标题、无序/有序列表、引用、分隔线、
+ * 行内 code / **bold** / [t](url)（链接按纯文本展示）。
  */
+
+/** 围栏语言标签 → highlight.ts 语言（聊天代码块着色，R5-5） */
+function fenceLang(tag: string): HighlightLang {
+  const t = tag.toLowerCase();
+  if (t === 'json' || t === 'jsonc') return 'json';
+  if (t === 'md' || t === 'markdown') return 'md';
+  if (['ts', 'tsx', 'js', 'jsx', 'typescript', 'javascript', 'mjs', 'cjs'].includes(t)) return 'ts';
+  return 'text';
+}
 
 function CopyButton({ code }: { code: string }): ReactNode {
   const [copied, setCopied] = useState(false);
@@ -64,12 +74,16 @@ export function renderMarkdown(src: string): ReactNode[] {
       while (i < lines.length && !lines[i]!.trim().startsWith('```')) buf.push(lines[i]!);
       i++; // 跳过结束 ```
       const code = buf.join('\n');
+      const hl = fenceLang(lang);
       blocks.push(
         createElement(
           'div',
           { className: 'codeblock', key: key++ },
           createElement('div', { className: 'codeblock-head' }, createElement('span', null, lang || 'text'), createElement(CopyButton, { code })),
-          createElement('pre', null, createElement('code', null, code)),
+          // 着色层（安全 HTML：highlightCode 内部全量 escape）+ 纯文本层兜底（选中/无障碍）
+          hl === 'text'
+            ? createElement('pre', null, createElement('code', null, code))
+            : createElement('pre', { className: 'code-hl' }, createElement('code', { dangerouslySetInnerHTML: { __html: highlightCode(code, hl) } })),
         ),
       );
       continue;
