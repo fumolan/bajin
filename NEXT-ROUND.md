@@ -1,35 +1,66 @@
-# bajin 第五轮改进计划
+# bajin 第七轮改进计划
 
-> 前四轮 44/44 已全部完成（R1 UX 10 + R2 体验 10 + R3 Git/编辑 12 + R4 编辑器/多模态 12）。
-> 本轮聚焦：**稳定性防线 + 对话深度体验 + 生态补齐**。每轮从顶部取第一个未完成项实现。
+> 前六轮 66/66 全部完成（R6 六项全部源自 ZCode 3.9.1 实机差异盘点）。
+> 本轮聚焦：**web 模式能力对齐 + 3.9.1 差异复查 + 内在质量**。每轮从顶部取第一个未完成项实现。
+> 2026-08-28 复查：运行中 ZCode 仍为 3.9.1（无更新）。
 
-## 前四轮回顾
+## 浏览器能力对齐（web 模式补课）
 
-- R1 UX（10）+ R2 体验（10）：Web 排查/错误/快捷键/预览/搜索/安装/更新/监控/e2e/附件/Compact/上下文/面板 全 ✅
-- R3 Git+编辑（12）：Git 面板/Diff/折叠/Ollama/离线/响应式/主题/批量/模板/语法/Tab 全 ✅
-- R4 编辑器+多模态（12）：内联编辑器/着色/保存 diff/图片输入/缩略图/语音/Ctrl+M/分叉/草稿/通知中心/搜索高亮/HTML 导出/分享链接 全 ✅
+- [x] **内容回读服务端补偿**（2026-08-28 完成）：web 模式 iframe 跨域读不到文本（只报 URL）时，
+  app-server 用 fetchPageText 代抓回填（仅当面板仍停在同一 URL，换页即丢弃）；新 browser/state-get
+  RPC 观察回读状态；browser-backfill.e2e.test.ts 2 例（本地 http server 回填回路/自带 content 优先）
+- [x] **CUA 跨域执行补偿**（2026-08-28 完成）：core ActionResultHub（结果先到暂存/超时失败/幂等回填，
+  action-hub.test 4 例）；app-server bridge click/type 发事件带 seq→等面板真实结果（10s 超时按失败），
+  browser/action-result RPC 回填；渲染层执行后上报成功/跨域受限（提示改桌面端）/未命中——工具不再盲报成功
 
-## 稳定性（黑屏事故的系统性防线）
+## ZCode 3.9.1 差异复查
 
-- [ ] **React ErrorBoundary**：渲染层崩溃不再整页白屏——顶栏保留 + 错误卡片（组件名/错误栈摘要/「重载界面」按钮）。此前 webview loadURL 崩溃若 有此防线最多丢一块面板
-- [ ] **长会话虚拟滚动**：消息 >150 条只渲染可视区 ±缓冲（窗口化），10 万 token 会话滚动不掉帧；侧栏会话列表同样窗口化
+- [x] **host 进程用途考证**（2026-08-28 完成，结论入 GAP-TRACKER）：host 是**每桌面窗口一个的后端宿主进程**
+  ——主进程按 windowId 维护 windowHostProcessMap，Electron MessageChannelMain 双 port 直连渲染层；
+  内含会话/子代理/agent 配置管理、node-pty 真终端、ssh2 远程执行、bundled-agents/tools 平台原生二进制
+  （${platform}-${arch} 目录，asar.unpacked 里的 node-pty/ssh2 即为其依赖）。scheduler 为独立自动化进程
+  （automation/cron/tick）。bajin 对照：等价物是 CLI app-server 子进程（stdio JSON-RPC）——架构同构，
+  差异为「每窗口独立 vs 全局共享」与「真 pty vs 管道」（后者已按 bundle<1MB 标准明确不做）。
+  **每窗口 host 独立进程不立项**：bajin 多标签共享一个 app-server，进程级崩溃隔离已具备，
+  按窗口拆分徒增进程与状态复杂度。**衍生立项**：app-server 崩溃自动恢复（见下）
+- [x] **UI 串二次扫描**（2026-08-28 完成）：2671 候选按特征词聚类（导入51/搜索49/更新34/额度33/复制32/
+  编辑26/删除25/同步19/标签11/撤销9…）；逐簇判定——额度/订阅/日志上传为 ZCode 账户体系不适用，
+  复制/删除/搜索基础 bajin 已有，导入外部 Agent 与标签页管理留作后续；**真差距=撤销本轮文件改动 → 已实现**
+  （core planFileRevert 分级计划器 + app-server touched 追踪与 revert RPC + GitPanel 预览/确认 UI，
+  revert-plan 5 例 + session-revert e2e 2 例）
 
-## 对话深度体验
+## 崩溃韧性（host 考证衍生的真差距）
 
-- [ ] **助手回复重新生成**：最后一条助手消息旁「↻ 重新生成」——session/rewind 回退一轮后重发（后端 rewind 已有，缺 UI）
-- [ ] **审批 diff 预览**：Write/Edit 审批卡内直接展示变更 diff（红删绿增，复用 lineDiff），拒绝盲批；diff 太大（>200 行）折叠为摘要
-- [ ] **聊天代码块着色**：助手回复里的代码块按语言着色（复用 R4 highlight.ts，guess 语言），保留现有复制按钮
-- [ ] **模型高级参数**：会话内可调 temperature / top_p / 最大输出——模型选择弹窗加「高级」折叠，params 随 send 传 provider（provider 已支持 temperature 透传，缺链路）
+- [x] **app-server 崩溃自动恢复**（2026-08-28 完成）：core RestartSupervisor（指数退避 1s→30s 封顶/
+  最多 5 次/稳定 60s 清零，restart-supervisor.test 4 例）；AppServerClient 退出复位引用（start 可重拉）+
+  stopped 区分主动关停；主进程崩溃→server-exit 携带 willRestart/attempt/delayMs→延迟重拉→server-restarted；
+  渲染层分级提示（安抚/放弃/普通）+ server-restarted 后 re-initialize 并对全部标签 openHistory 恢复
 
-## 生态与补齐
+## 外部生态导入（R7-5 二扫的最大遗留簇：导入 51 条）
 
-- [ ] **MCP streamable HTTP**：补齐现代 MCP 传输（stdio+SSE 已有）——POST /mcp 单端口协议 + 会话头，与 SSE 并列可选
-- [ ] **插件市场**：设置内浏览/一键安装插件——内置索引（git 仓库源 + 本地目录）→ plugins/install 已有，补 UI 与索引源
-- [ ] **i18n 收口**：界面英文字符串表补全（当前 t() 101 处但词表不全）——中英完整对照，语言切换全界面生效
+- [x] **导入 Claude Code 设置**（2026-08-28 完成）：core importClaudeSettings（命令 md/技能目录
+  SKILL.md/子代理 md 复制入用户级目录；~/.claude.json mcpServers 合并入 config.json 同名不覆盖；
+  dry-run 只清点；源目录可注入）+ `bajin import claude [--dry-run]` 子命令；import-external.test 4 例
+- [x] **导入 Codex/Cursor 设置**（2026-08-28 完成）：importCodexSettings（prompts/*.md→命令；config.toml
+  手写最小 TOML 解析 [mcp_servers.*] 字符串/数组/内联表，不引依赖）+ importCursorSettings（rules/*.mdc→
+  技能，mdcToSkillMd 转写 description/globs；mcp.json 合并）；CLI `bajin import <claude|codex|cursor>`；
+  import-more.test 4 例；实机 dry-run：codex 空结果正确（真实 config 无 mcp_servers/prompts）、cursor 源缺失安全
 
-## 性能
+## 界面打磨（R7-5 二扫标签簇）
 
-- [ ] **Web 首屏提速**：静态资源 gzip + ETag 缓存（app-web.js ~600KB 每次全量拉），目标二次进入 <100ms
+- [x] **标签页管理增强**（2026-08-28 完成）：shared/tab-ops 纯函数（closeOthers/closeAll/closeOne/
+  reopenTab，7 例）；标签右键菜单（关闭标签/关闭其他/关闭所有/恢复最近关闭 N）+ ＋ 旁 ↺ 恢复按钮 +
+  Ctrl+Shift+T；Tab 增 id（创建序号，reopen 按原 index 插回夹末尾）；恢复栈上限 20；关闭不重开会话
+  ——历史列表仍在可找回
+
+## 内在质量
+
+- [x] **面板状态时效显示**（2026-08-28 完成）：BrowserStateStore 增 contentAt（换 URL 不重置内容时钟——
+  旧内容继续变旧）；bridge 可选 getContentMeta；BrowserContent 输出标注「内容更新于 N 秒前」（>2 分钟提示
+  建议 BrowserNavigate 刷新）；面板头 5s 轮询 state-get 显示时效 chip（>5 分钟黄字警示）；browser-age 3 例
+- [x] **回读去重**（2026-08-28 完成，R7 收官）：shouldBackfill（同 URL 30s TTL 防抖，换 URL/过期放行）+
+  setContentIfChanged（内容相同不动 contentAt——页面没变不伪造「刚更新」，不同才重置时钟）；app-server 代抓
+  走双闸；backfill-dedup 3 例 + e2e 1 例（请求计数器实证两次上报只抓一次、换页立即放行）
 
 ---
-*生成时间：2026-08-26 00:10 | 目标：10 项 | 依据：GAP-TRACKER 遗留（MCP OAuth/市场/i18n）+ Chrome 实测暴露的防线缺口（黑屏事故、审批盲批、长会话性能）*
+*生成时间：2026-08-28 03:30 | 目标：5 项（5/5 全部完成） | 依据：R6 收官后遗留（web 跨域两处）+ 3.9.1 未考证差异 + 回读质量*
