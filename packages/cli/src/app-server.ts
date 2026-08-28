@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
 import {
-  Agent, createGlmProvider, createAnthropicProvider, createMockProvider, listSessions, PermissionPolicy, discoverSkills,
+  Agent, createGlmProvider, createAnthropicProvider, createMockProvider, listSessions, PermissionPolicy, discoverSkills, setBrowserBridge, BrowserStateStore, fetchPageText, ActionResultHub, planFileRevert, shouldBackfill,
   discoverCommands, findCommand, expandCommand, loadHooksConfig, discoverSubagents, readMemories, clearMemories, seedBuiltinSkills,
   discoverPlugins, togglePlugin, installPlugin,
   openSessionStore, storeUpsertSession, storeAppendMessage, storeUpdateSessionMeta, storeDeleteSession, storeReplaceTodos, storeListSessions,
@@ -119,7 +119,31 @@ export class AppServer {
   constructor(
     private readonly write: (line: string) => void,
     private readonly exit: () => void,
-  ) {}
+  ) {
+    // 浏览器面板桥（R6）：BrowserNavigate 工具 → browser-panel 事件 → 渲染层面板。
+    // 此前生产环境 bridge 无人安装，工具永远走文本降级——面板形同虚设。
+    // R6-2 状态回读：渲染层页面加载后推 'browser/state' RPC 入 this.browserState，
+    // getUrl/getContent 从状态仓取，BrowserContent 读真实面板内容。
+    setBrowserBridge({
+      navigate: async (url) => { this.emit('browser-panel', { url }); return true; },
+      getUrl: async () => this.browserState.getUrl(),
+      getContent: async () => this.browserState.getContent(),
+      getContentMeta: async () => ({ content: this.browserState.getContent(), ageMs: this.browserState.getContentAgeMs() }),
+      // R7-2：发出动作后等面板真实执行结果（跨域/未命中不再盲报成功）
+      click: async (selector) => {
+        const seq = this.actionHub.nextSeq();
+        this.emit('browser-panel', { action: 'click', selector, seq });
+        return (await this.actionHub.wait(seq, 10_000)).ok;
+      },
+      type: async (selector, text) => {
+        const seq = this.actionHub.nextSeq();
+        this.emit('browser-panel', { action: 'type', selector, text, seq });
+        return (await this.actionHub.wait(seq, 10_000)).ok;
+      },
+      setViewport: async (width, height) => { this.emit('browser-panel', { viewport: { width, height } }); return true; },
+      setZoom: async (factor) => { this.emit('browser-panel', { zoom: factor }); return true; },
+    });
+  }
 
   async handleRequest(req: RpcRequest): Promise<void> {
     const respond = (result?: unknown, error?: RpcError) => {
@@ -148,6 +172,15 @@ export class AppServer {
           return respond(await this.setMode(p as unknown as WithSession & { mode: PermissionMode }));
         case 'set-model':
           return respond(await this.setModel(p as unknown as WithSession & { model: string }));
+        case 'session/set-params':
+          return respond(this.withSession(p, (s) => {
+            const q = p as { temperature?: number; topP?: number; maxTokens?: number };
+            s.agent.setChatParams({
+              ...(q.temperature != null ? { temperature: Math.max(0, Math.min(2, q.temperature)) } : {}),
+              ...(q.topP != null ? { topP: Math.max(0, Math.min(1, q.topP)) } : {}),
+              ...(q.maxTokens != null ? { maxTokens: Math.max(1, Math.min(131072, Math.floor(q.maxTokens))) } : {}),
+            });
+          }));
         case 'set-allowed-tools':
           return respond(this.setAllowedTools(p as unknown as WithSession & { add?: string; remove?: string }));
         case 'compact':
@@ -234,6 +267,82 @@ export class AppServer {
           return respond(await this.pluginToggle(p as unknown as { name: string; enabled: boolean }));
         case 'plugins/install':
           return respond(await this.pluginInstall(p as unknown as { sourceDir: string; name: string }));
+        case 'browser/state': {
+          const q = p as { url?: string; content?: string };
+          this.browserState.setState(q.url ?? null, q.content ?? null);
+          // R7-1 服务端补偿 + R7-7 去重：web 模式只报 URL 时由 app-server 代抓回填；
+          // 同 URL 30s 内不重复代抓（iframe 重载防抖），内容没变不重置内容时钟（不伪造刚更新）。
+          if (!q.content && /^https?:\/\//.test(q.url ?? '')) {
+            const url = q.url!;
+            if (shouldBackfill(url, this.lastBackfillUrl, this.lastBackfillAt)) {
+              this.lastBackfillUrl = url;
+              this.lastBackfillAt = Date.now();
+              void fetchPageText(url)
+                .then((text) => {
+                  // 仅当面板仍停在同一 URL 时回填（用户已换页则丢弃）
+                  if (this.browserState.getUrl() === url) this.browserState.setContentIfChanged(text.slice(0, 20000));
+                })
+                .catch(() => undefined);
+            }
+          }
+          return respond({ ok: true, updatedAt: this.browserState.updatedAtMs });
+        }
+        case 'browser/action-result': {
+          const q = p as { seq?: number; ok?: boolean; reason?: string };
+          if (typeof q.seq === 'number') this.actionHub.resolve(q.seq, q.ok === true, q.reason);
+          return respond({ ok: true });
+        }
+        case 'session/touched-files': {
+          const q = p as { sessionId?: string };
+          const set = q.sessionId ? this.touchedFiles.get(q.sessionId) : undefined;
+          return respond({ files: set ? [...set] : [] });
+        }
+        case 'session/revert-files': {
+          const q = p as { sessionId?: string; dryRun?: boolean; confirmDelete?: boolean };
+          if (!q.sessionId) throw new Error('需要 sessionId');
+          // touched 存的是工具入参绝对路径；porcelain 是仓库相对路径——先求仓库根再做相对化对齐
+          const toplevel = await new Promise<string>((resolve) => {
+            ef('git', ['rev-parse', '--show-toplevel'], { cwd: this.cwd, timeout: 5000 }, (err: Error | null, stdout: string) => {
+              resolve(err ? '' : stdout.trim());
+            });
+          });
+          const rel = (fp: string): string => (toplevel && fp.startsWith(toplevel + '/')) ? fp.slice(toplevel.length + 1) : fp;
+          const touchedAbs = this.touchedFiles.get(q.sessionId) ?? new Set<string>();
+          const touched = new Set([...touchedAbs].map(rel));
+          const entries = await this.gitPorcelain();
+          const plan = planFileRevert(entries, touched);
+          if (q.dryRun) return respond({ ...plan, touchedCount: touched.size });
+          // 执行：restore 走 git checkout --；delete-untracked 仅在 confirmDelete 时删
+          const done: string[] = [];
+          const skipped: string[] = [];
+          for (const it of plan.safe) {
+            const ok = await this.gitRun(['checkout', '--', it.path]);
+            (ok ? done : skipped).push(it.path);
+          }
+          if (q.confirmDelete) {
+            for (const it of plan.risky) {
+              if (it.action !== 'delete-untracked') continue;
+              const ok = await this.gitRun(['clean', '-f', '--', it.path]);
+              (ok ? done : skipped).push(it.path);
+            }
+          }
+          if (done.length) this.touchedFiles.delete(q.sessionId);
+          return respond({ done, skipped, remaining: plan.risky.filter((r) => r.action !== 'delete-untracked' || !q.confirmDelete) });
+        }
+        case 'browser/state-get':
+          return respond({ url: this.browserState.getUrl(), content: this.browserState.getContent(), updatedAt: this.browserState.updatedAtMs });
+        case 'browser/record-save':
+          return respond(await this.browserRecordSave(p as unknown as { name?: string; dataBase64?: string }));
+        case 'browser/record-list':
+          return respond(await this.browserRecordList());
+        case 'browser/record-read':
+          return respond(await this.browserRecordRead(p as unknown as { name: string }));
+        case 'browser/record-delete':
+          return respond(await this.browserRecordDelete(p as unknown as { name: string }));
+        case 'plugins/marketplace':
+          return respond(this.pluginMarketplace());
+        case 'plugins/marketplace-install':
+          return respond(await this.pluginMarketplaceInstall(p as unknown as { repo?: string; subdir?: string; name?: string }));
         case 'logs/list':
           return respond(await this.logsList());
         case 'logs/read':
@@ -253,6 +362,76 @@ export class AppServer {
       if (err instanceof BusyError) respond(undefined, { code: -32000, message: err.message });
       else respond(undefined, { code: -32000, message: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  /** 浏览器面板状态仓（R6-2）：渲染层经 browser/state RPC 推送 */
+  private readonly browserState = new BrowserStateStore();
+
+  /** CUA 动作结果汇聚（R7-2）：面板执行后经 browser/action-result 回填 */
+  private readonly actionHub = new ActionResultHub();
+
+  /** 本会话触碰的文件（R7-5 撤销本轮改动）：sessionId → Set<绝对路径> */
+  private readonly touchedFiles = new Map<string, Set<string>>();
+
+  /** 服务端代抓去重（R7-7）：上次代抓的 URL 与时刻 */
+  private lastBackfillUrl: string | null = null;
+  private lastBackfillAt = 0;
+
+  /** 录制目录（R6-4 webm 留档）：<stateHome>/browser-recordings */
+  private browserRecordDir(): string {
+    return path.join(AppServer.stateHome(), 'browser-recordings');
+  }
+
+  /** 保存录制（R6-4）：名字白名单化防路径穿越，≤50MB，webm/mp4 二进制 base64 */
+  private async browserRecordSave(p: { name?: string; dataBase64?: string }): Promise<Record<string, unknown>> {
+    if (!p.dataBase64) throw new Error('缺少 dataBase64');
+    const buf = Buffer.from(p.dataBase64, 'base64');
+    if (buf.byteLength === 0) throw new Error('录制数据为空');
+    if (buf.byteLength > 50 * 1024 * 1024) throw new Error('录制过大（>50MB），请在面板本地留存');
+    const safe = (p.name ?? '').replace(/[^\w.-]+/g, '_').replace(/^[._]+/, '');
+    const name = `${Date.now()}-${safe || 'rec'}.webm`.slice(0, 120);
+    const dir = this.browserRecordDir();
+    await fs.mkdir(dir, { recursive: true });
+    const file = path.join(dir, name);
+    await fs.writeFile(file, buf);
+    return { path: file, bytes: buf.byteLength, name };
+  }
+
+  /** 录制列表（新→旧） */
+  private async browserRecordList(): Promise<Record<string, unknown>> {
+    const dir = this.browserRecordDir();
+    const entries = await fs.readdir(dir).catch(() => [] as string[]);
+    const out: Array<Record<string, unknown>> = [];
+    for (const name of entries) {
+      if (!name.endsWith('.webm')) continue;
+      const full = path.join(dir, name);
+      const st = await fs.stat(full).catch(() => null);
+      if (!st?.isFile()) continue;
+      out.push({ name, path: full, size: st.size, mtimeMs: Math.round(st.mtimeMs) });
+    }
+    out.sort((a, b) => Number(b['mtimeMs']) - Number(a['mtimeMs']));
+    return { recordings: out.slice(0, 100) };
+  }
+
+  /** 读取录制（回放用）：白名单文件名，base64 返回 */
+  private async browserRecordRead(p: { name: string }): Promise<Record<string, unknown>> {
+    const safe = (p.name ?? '').replace(/[^\w.-]+/g, '_');
+    const dir = this.browserRecordDir();
+    const file = path.join(dir, safe);
+    if (!file.startsWith(dir + path.sep)) throw new Error('非法路径');
+    const buf = await fs.readFile(file).catch(() => null);
+    if (!buf) throw new Error(`录制不存在: ${safe}`);
+    if (buf.byteLength > 50 * 1024 * 1024) throw new Error('录制过大（>50MB），请在文件管理器打开');
+    return { name: safe, dataBase64: buf.toString('base64'), bytes: buf.byteLength };
+  }
+
+  /** 删除录制：只允许删录制目录内的白名单文件名 */
+  private async browserRecordDelete(p: { name: string }): Promise<Record<string, unknown>> {
+    const safe = (p.name ?? '').replace(/[^\w.-]+/g, '_');
+    const file = path.join(this.browserRecordDir(), safe);
+    if (!file.startsWith(this.browserRecordDir() + path.sep)) throw new Error('非法路径');
+    await fs.rm(file, { force: true });
+    return { deleted: safe };
   }
 
   private emit(event: string, params: unknown): void {
@@ -633,6 +812,27 @@ export class AppServer {
     }
   }
 
+  /** git status --porcelain（撤销计划输入）；无仓库/失败返回空 */
+  private async gitPorcelain(): Promise<Array<{ xy: string; path: string }>> {
+    const out = await new Promise<string>((resolve) => {
+      ef('git', ['status', '--porcelain'], { cwd: this.cwd, timeout: 5000 }, (err: Error | null, stdout: string) => {
+        resolve(err ? '' : stdout);
+      });
+    });
+    const entries: Array<{ xy: string; path: string }> = [];
+    for (const line of out.split('\n')) {
+      if (line.length < 4) continue;
+      entries.push({ xy: line.slice(0, 2), path: line.slice(3).trim() });
+    }
+    return entries;
+  }
+
+  private gitRun(args: string[]): Promise<boolean> {
+    return new Promise((resolve) => {
+      ef('git', args, { cwd: this.cwd, timeout: 10_000 }, (err: Error | null) => resolve(!err));
+    });
+  }
+
   /** Git 状态（对标 ZCode git integration）：分支+脏文件+最近提交+diff 摘要 */
   private async gitStatus(): Promise<Record<string, unknown>> {
     const exec = (cmd: string, args: string[]): Promise<string> =>
@@ -752,6 +952,40 @@ export class AppServer {
     if (!p.sourceDir || !platform.isAbsolutePath(p.sourceDir) || !p.name?.trim()) throw new Error('需要 sourceDir（绝对路径）与 name');
     const r = await installPlugin(p.sourceDir, p.name.trim());
     return { plugin: r };
+  }
+
+  /** 内置插件市场目录（R5-8）：官方仓库 fumolan/bajin-plugins 的子目录 + 说明 */
+  private pluginMarketplace(): Record<string, unknown> {
+    return {
+      catalog: [
+        { name: 'a-stock-data', desc: 'A股行情/研报/龙虎榜数据技能包', icon: '📈', repo: 'https://github.com/fumolan/bajin-plugins', subdir: 'a-stock-data' },
+        { name: 'doc-tools', desc: 'docx/pptx/xlsx 文档创建技能', icon: '📄', repo: 'https://github.com/fumolan/bajin-plugins', subdir: 'doc-tools' },
+        { name: 'pdf-toolkit', desc: 'PDF 报告/简历/批处理技能', icon: '📕', repo: 'https://github.com/fumolan/bajin-plugins', subdir: 'pdf-toolkit' },
+      ],
+    };
+  }
+
+  /** 市场安装（R5-8）：git clone --depth 1 到临时目录 → installPlugin → 清理 */
+  private async pluginMarketplaceInstall(p: { repo?: string; subdir?: string; name?: string }): Promise<Record<string, unknown>> {
+    const repo = p.repo?.trim();
+    const name = p.name?.trim();
+    if (!/^https:\/\/[\w.-]+\/[\w.-]+\/[\w.-]+$/.test(repo ?? '')) throw new Error('repo 需为 https git 仓库地址');
+    if (!name) throw new Error('需要 name');
+    const tmp = path.join(osMod.tmpdir(), `bajin-mkt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    const subdir = p.subdir?.trim();
+    const src = subdir ? path.join(tmp, subdir) : tmp;
+    await new Promise<void>((resolve, reject) => {
+      ef('git', ['clone', '--depth', '1', repo!, tmp], { timeout: 60_000 }, (err: Error | null) => {
+        if (err) reject(new Error(`git clone 失败: ${err.message}`));
+        else resolve();
+      });
+    });
+    try {
+      const r = await installPlugin(src, name);
+      return { plugin: r };
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 
   /** 删除任务：移除持久化目录；若该会话正开着，先关掉 */
@@ -927,7 +1161,19 @@ export class AppServer {
     state.agent.setCallbacks({
       onText: (delta) => this.emit('text-delta', { sessionId, delta }),
       onReasoning: (delta) => this.emit('reasoning-delta', { sessionId, delta }),
-      onToolCall: (name, args) => this.emit('tool-call', { sessionId, name, args }),
+      onToolCall: (name, args) => {
+        this.emit('tool-call', { sessionId, name, args });
+        // R7-5：记录本会话触碰的文件（撤销本轮改动用）；成功与否以 tool-result 为准太迟——
+        // 记录发生在调用时，撤销计划阶段会用 git 实况过滤，多记无害
+        if ((name === 'Write' || name === 'Edit') && args && typeof args === 'object') {
+          const fp = (args as Record<string, unknown>)['file_path'];
+          if (typeof fp === 'string' && fp) {
+            let set = this.touchedFiles.get(sessionId);
+            if (!set) { set = new Set(); this.touchedFiles.set(sessionId, set); }
+            set.add(fp);
+          }
+        }
+      },
       onToolResult: (name, result) => {
         this.emit('tool-result', { sessionId, name, ...result });
         const todos = state.agent.todoSnapshot();

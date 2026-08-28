@@ -24,6 +24,8 @@ import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawn, type ChildProcess } from 'node:child_process';
 import * as os from 'node:os';
+import { gzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -198,6 +200,42 @@ export interface WebServerOptions {
   baseUrl?: string;
 }
 
+
+/**
+ * 静态资源响应（R5-10 首屏提速）：
+ * - ETag = 内容 sha1 前 16 hex；If-None-Match 命中 → 304 空体（浏览器缓存生效）
+ * - 客户端支持 gzip 且体 > 1KB → gzipSync 压缩（app-web.js ~600KB → ~130KB）
+ * - Cache-Control: no-cache：每次带 ETag 再验证，改版立即生效
+ */
+export function sendStatic(req: http.IncomingMessage, res: http.ServerResponse, body: Buffer | string, contentType: string): void {
+  const buf = typeof body === 'string' ? Buffer.from(body, 'utf8') : body;
+  const etag = `"${createHash('sha1').update(buf).digest('hex').slice(0, 16)}"`;
+  const inm = String(req.headers['if-none-match'] ?? '');
+  if (inm === etag) {
+    res.writeHead(304, { ETag: etag, 'Cache-Control': 'no-cache' });
+    res.end();
+    return;
+  }
+  const headers: Record<string, string | number> = {
+    'Content-Type': contentType,
+    'Cache-Control': 'no-cache',
+    ETag: etag,
+  };
+  const acceptGzip = String(req.headers['accept-encoding'] ?? '').includes('gzip');
+  if (acceptGzip && buf.length > 1024) {
+    const gz = gzipSync(buf);
+    headers['Content-Encoding'] = 'gzip';
+    headers['Content-Length'] = gz.length;
+    headers['Vary'] = 'Accept-Encoding';
+    res.writeHead(200, headers);
+    res.end(gz);
+    return;
+  }
+  headers['Content-Length'] = buf.length;
+  res.writeHead(200, headers);
+  res.end(buf);
+}
+
 export function startWebServer(opts: WebServerOptions): http.Server {
   const port = opts.port ?? 4444;
   const cwd = opts.cwd ?? process.cwd();
@@ -245,34 +283,26 @@ export function startWebServer(opts: WebServerOptions): http.Server {
     if (req.method === 'GET') {
       // 主页
       if (url.pathname === '/' || url.pathname === '/index.html') {
-        const html = getWebHtml();
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-        res.end(html);
+        sendStatic(req, res, getWebHtml(), 'text/html; charset=utf-8');
         return;
       }
       // styles.css
       if (url.pathname === '/styles.css') {
         const cssPath = findFile('styles.css', 'apps/desktop/src/renderer/styles.css');
-        if (cssPath) {
-          res.writeHead(200, { 'Content-Type': 'text/css; charset=utf-8' });
-          res.end(fs.readFileSync(cssPath, 'utf8'));
-        } else { res.writeHead(404); res.end('styles.css not found'); }
+        if (cssPath) sendStatic(req, res, fs.readFileSync(cssPath), 'text/css; charset=utf-8');
+        else { res.writeHead(404); res.end('styles.css not found'); }
         return;
       }
       // web-bridge.js
       if (url.pathname === '/web-bridge.js') {
-        const bridge = getWebBridge();
-        res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
-        res.end(bridge);
+        sendStatic(req, res, getWebBridge(), 'application/javascript; charset=utf-8');
         return;
       }
       // app-web.js（编译后的 React 渲染层）
       if (url.pathname === '/app-web.js') {
         const jsPath = findFile('app-web.js', 'apps/desktop/dist/renderer/app.js');
-        if (jsPath) {
-          res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8' });
-          res.end(fs.readFileSync(jsPath));
-        } else { res.writeHead(404); res.end('app-web.js not found'); }
+        if (jsPath) sendStatic(req, res, fs.readFileSync(jsPath), 'application/javascript; charset=utf-8');
+        else { res.writeHead(404); res.end('app-web.js not found'); }
         return;
       }
 
@@ -561,7 +591,7 @@ function getWebBridge(): string {
       'usage', 'done', 'error', 'agent-error', 'todo-updated',
       'approval-request', 'ask-user', 'session-resumed', 'server-exit',
       'automation-ran', 'mode-changed', 'model-changed', 'interrupted',
-      'term-data', 'term-exit'
+      'term-data', 'term-exit', 'browser-panel'
     ];
     for (const ev of knownEvents) {
       es.addEventListener(ev, function(e) {

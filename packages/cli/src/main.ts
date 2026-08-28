@@ -33,6 +33,7 @@ const USAGE = `bajin — 交互式编码代理
 子命令:
   migrate [--db <file>]  存量 JSONL 会话迁入 SQLite（幂等；默认 ~/.bajin/sessions.db，遵循 BAJIN_HOME）
   export <id> [--out f]  导出会话为 Markdown（id 支持前缀匹配；默认 <sessionId>.md）
+  import <claude|codex|cursor> [--dry-run]  从外部 Agent 导入命令/技能/子代理/MCP
   server [--port N]      浏览器完整 bajin UI（默认端口 4444）
   app-server --stdio     作为桌面端后端进程运行
 
@@ -121,6 +122,24 @@ function main(): void {
       const { writeFileSync } = await import('node:fs');
       writeFileSync(out, text, 'utf8');
       console.log(`已导出 ${messages.length} 条消息到 ${out}（${format.toUpperCase()}）`);
+      return;
+    }
+
+    // 子命令：bajin import <claude|codex|cursor> [--dry-run] —— 外部 Agent 设置导入（R8-1/R8-2）
+    if (process.argv[2] === 'import' && ['claude', 'codex', 'cursor'].includes(process.argv[3] ?? '')) {
+      const dryRun = process.argv.includes('--dry-run');
+      const which = process.argv[3] as 'claude' | 'codex' | 'cursor';
+      const core = await import('@bajin/core');
+      const r = await (which === 'claude' ? core.importClaudeSettings({ dryRun })
+        : which === 'codex' ? core.importCodexSettings({ dryRun })
+        : core.importCursorSettings({ dryRun }));
+      const total = r.commands.length + r.skills.length + r.agents.length + r.mcpServers.length;
+      console.log(dryRun ? '（dry-run，未写入）' : `导入完成：${total} 项`);
+      if (r.commands.length) console.log(`  命令   ×${r.commands.length}: ${r.commands.join(', ')}`);
+      if (r.skills.length) console.log(`  技能   ×${r.skills.length}: ${r.skills.join(', ')}`);
+      if (r.agents.length) console.log(`  子代理 ×${r.agents.length}: ${r.agents.join(', ')}`);
+      if (r.mcpServers.length) console.log(`  MCP    ×${r.mcpServers.length}: ${r.mcpServers.join(', ')}`);
+      for (const sk of r.skipped) console.log(`  跳过 ${sk.what}（${sk.reason}）`);
       return;
     }
 
