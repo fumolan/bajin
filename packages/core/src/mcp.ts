@@ -160,7 +160,7 @@ function passthroughSchema(): z.ZodType {
   return z.record(z.string(), z.unknown());
 }
 
-/** 两种传输共用的客户端接口 */
+/** 传输共用的客户端接口 */
 interface McpClientLike {
   start(): Promise<void>;
   listTools(): Promise<Array<{ name: string; description?: string; inputSchema?: unknown }>>;
@@ -172,6 +172,120 @@ export interface McpSseServerConfig {
   type: 'sse';
   url: string;
   headers?: Record<string, string>;
+}
+
+export interface McpHttpServerConfig {
+  type: 'http';
+  url: string;
+  headers?: Record<string, string>;
+}
+
+/**
+ * Streamable HTTP 传输（MCP 2025-03-26 现代标准，R5-7）：
+ * 单端点 POST JSON-RPC；initialize 响应可带 Mcp-Session-Id 头，后续请求回带；
+ * 响应体两种形态都处理——application/json 直接解析、text/event-stream 扫 data 帧取结果。
+ * 请求串行排队，避免单端点下响应交错。
+ */
+class McpStreamableHttpClient implements McpClientLike {
+  private seq = 0;
+  private sessionHeader: string | null = null;
+  private closed = false;
+  private chain: Promise<unknown> = Promise.resolve();
+
+  constructor(
+    private readonly name: string,
+    private readonly cfg: McpHttpServerConfig,
+  ) {}
+
+  async start(): Promise<void> {
+    await this.request('initialize', {
+      protocolVersion: PROTOCOL_VERSION,
+      capabilities: {},
+      clientInfo: { name: 'bajin', version: '0.1.0' },
+    });
+    await this.notify('notifications/initialized');
+  }
+
+  /** 从响应体提取 JSON-RPC 结果：JSON 直取；SSE 则扫 data: 行找带 id 的帧 */
+  private async extractResult(res: Response): Promise<unknown> {
+    const ct = res.headers.get('content-type') ?? '';
+    if (ct.includes('text/event-stream')) {
+      const text = await res.text();
+      for (const frame of text.split('\n\n')) {
+        const data = frame.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trim()).join('');
+        if (!data) continue;
+        try {
+          const msg = JSON.parse(data) as JsonRpcResponse;
+          if (msg.id !== undefined && !msg.error) return msg.result;
+          if (msg.id !== undefined && msg.error) throw new Error(msg.error.message ?? `MCP 错误 ${msg.error.code ?? ''}`);
+        } catch (e) {
+          if (e instanceof Error && !String(e.message).startsWith('Unexpected')) throw e;
+        }
+      }
+      throw new Error(`MCP "${this.name}" SSE 响应中未找到结果帧`);
+    }
+    const msg = (await res.json()) as JsonRpcResponse;
+    if (msg.error) throw new Error(msg.error.message ?? `MCP 错误 ${msg.error.code ?? ''}`);
+    return msg.result;
+  }
+
+  private async postOnce(method: string, id: number | undefined, params: unknown): Promise<unknown> {
+    const res = await fetch(this.cfg.url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        ...(this.sessionHeader ? { 'Mcp-Session-Id': this.sessionHeader } : {}),
+        ...(this.cfg.headers ?? {}),
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', ...(id !== undefined ? { id } : {}), method, params }),
+    });
+    // initialize 响应头携带会话 id（streamable 协议约定），后续请求回带
+    const sid = res.headers.get('mcp-session-id');
+    if (sid) this.sessionHeader = sid;
+    if (!res.ok && res.status !== 202) throw new Error(`HTTP ${res.status}`);
+    // 202 Accepted（纯通知）→ 无结果体
+    if (res.status === 202) return undefined;
+    return this.extractResult(res);
+  }
+
+  private request(method: string, params: unknown, timeoutMs = INIT_TIMEOUT_MS): Promise<unknown> {
+    if (this.closed) return Promise.reject(new Error(`MCP server "${this.name}" 不可用`));
+    const id = ++this.seq;
+    const run = (): Promise<unknown> => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`MCP "${this.name}" ${method} 超时（${timeoutMs}ms）`)), timeoutMs);
+      this.postOnce(method, id, params)
+        .then((v) => { clearTimeout(timer); resolve(v); }, (e: unknown) => { clearTimeout(timer); reject(e instanceof Error ? e : new Error(String(e))); });
+    });
+    const next = this.chain.then(run, run);
+    this.chain = next.catch(() => undefined);
+    return next;
+  }
+
+  private async notify(method: string): Promise<void> {
+    await this.postOnce(method, undefined, undefined).catch(() => undefined);
+  }
+
+  async listTools(): Promise<Array<{ name: string; description?: string; inputSchema?: unknown }>> {
+    const res = (await this.request('tools/list', {}, CALL_TIMEOUT_MS)) as { tools?: Array<{ name: string; description?: string; inputSchema?: unknown }> };
+    return res?.tools ?? [];
+  }
+
+  async callTool(tool: string, args: unknown): Promise<ToolResult> {
+    const res = (await this.request('tools/call', { name: tool, arguments: args ?? {} }, CALL_TIMEOUT_MS)) as {
+      content?: Array<{ type?: string; text?: string }>;
+      isError?: boolean;
+    };
+    const text = (res?.content ?? [])
+      .map((c) => (c.type === 'text' && c.text) || '')
+      .filter(Boolean)
+      .join('\n') || JSON.stringify(res ?? {});
+    return { ok: !res?.isError, output: text };
+  }
+
+  kill(): void {
+    this.closed = true;
+  }
 }
 
 /**
@@ -347,6 +461,8 @@ export async function connectMcpServers(configs: McpServerConfigs, log: (msg: st
         client = new McpStdioClient(name, cfg as McpStdioServerConfig);
       } else if (cfg?.type === 'sse' && cfg.url) {
         client = new McpSseClient(name, cfg as McpSseServerConfig);
+      } else if ((cfg?.type === 'http' || cfg?.type === 'streamable-http') && cfg.url) {
+        client = new McpStreamableHttpClient(name, cfg as unknown as McpHttpServerConfig);
       } else {
         continue;
       }

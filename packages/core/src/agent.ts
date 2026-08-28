@@ -47,6 +47,8 @@ export interface AgentOptions {
   policy?: PermissionPolicy;
   callbacks?: AgentCallbacks;
   maxIterations?: number;
+  /** 模型高级参数（R5-6）：随每次 chat 透传 provider（temperature/topP/maxTokens） */
+  chatParams?: { temperature?: number; topP?: number; maxTokens?: number };
   /** 每个工具结果的输出上限（字符） */
   maxToolOutputChars?: number;
   /** 覆盖默认的 askUser（无人交互环境返回 null） */
@@ -415,6 +417,9 @@ export class Agent implements PlanModeHost {
           model: this.opts.model,
           messages: [...this.messages],
           tools: this.providerTools(),
+          ...(this.opts.chatParams?.temperature != null ? { temperature: this.opts.chatParams.temperature } : {}),
+          ...(this.opts.chatParams?.topP != null ? { topP: this.opts.chatParams.topP } : {}),
+          ...(this.opts.chatParams?.maxTokens != null ? { maxTokens: this.opts.chatParams.maxTokens } : {}),
           signal: this.activeAbort.signal,
         });
       } catch (err) {
@@ -711,6 +716,11 @@ export class Agent implements PlanModeHost {
   setCwd(cwd: string): void {
     this.opts.cwd = cwd;
     this.refreshSystem();
+  }
+
+  /** 模型高级参数（R5-6）：会话内动态调整，下一次请求生效 */
+  setChatParams(p: { temperature?: number; topP?: number; maxTokens?: number }): void {
+    this.opts.chatParams = { ...this.opts.chatParams, ...p };
   }
 
   /** 原始 cwd（ExitWorktree 回退用） */

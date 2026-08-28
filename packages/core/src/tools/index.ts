@@ -7,7 +7,7 @@ import { createWebFetchTool, createWebSearchTool, htmlToText, parseDuckResults, 
 import { createCronCreateTool, createCronUpdateTool, createCronDeleteTool, createCronListTool } from './cron.js';
 import { createTaskOutputTool, createTaskStopTool } from './tasks.js';
 import { createDiagnosticsTool, parseTscOutput } from './diagnostics.js';
-import { createBrowserNavigateTool, createBrowserContentTool, setBrowserBridge, getBrowserBridge, type BrowserBridge } from './browser.js';
+import { createBrowserNavigateTool, createBrowserContentTool, createBrowserClickTool, createBrowserTypeTool, setBrowserBridge, getBrowserBridge, type BrowserBridge } from './browser.js';
 
 export const builtinTools: ToolDefinition[] = [
   readTool,
@@ -28,6 +28,8 @@ export const builtinTools: ToolDefinition[] = [
   createTaskStopTool(),
   createBrowserNavigateTool(),
   createBrowserContentTool(),
+  createBrowserClickTool(),
+  createBrowserTypeTool(),
   createDiagnosticsTool(),
 ];
 

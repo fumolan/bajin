@@ -188,6 +188,7 @@ export function createGlmProvider(opts: GlmProviderOptions = {}): ModelProvider 
       stream_options: { include_usage: true },
       ...(req.maxTokens != null ? { max_tokens: req.maxTokens } : {}),
       ...(req.temperature != null ? { temperature: req.temperature } : {}),
+      ...(req.topP != null ? { top_p: req.topP } : {}),
     };
 
     let lastError: unknown;

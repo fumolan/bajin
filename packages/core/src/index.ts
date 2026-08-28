@@ -47,7 +47,7 @@ export { createWebFetchTool, createWebSearchTool, htmlToText, parseDuckResults, 
 export { createCronCreateTool, createCronUpdateTool, createCronDeleteTool, createCronListTool } from './tools/cron.js';
 export { createTaskOutputTool, createTaskStopTool } from './tools/tasks.js';
 export { createEnterWorktreeTool, createExitWorktreeTool } from './tools/worktree.js';
-export { createBrowserNavigateTool, createBrowserContentTool, setBrowserBridge, getBrowserBridge } from './tools/browser.js';
+export { createBrowserNavigateTool, createBrowserContentTool, createBrowserClickTool, createBrowserTypeTool, setBrowserBridge, getBrowserBridge, BrowserStateStore, normalizeBrowserUrl, fetchPageText, ActionResultHub, shouldBackfill } from './tools/browser.js';
 export { createDiagnosticsTool, parseTscOutput } from './tools/diagnostics.js';
 export type { DiagnosticItem } from './tools/diagnostics.js';
 export type { BrowserBridge } from './tools/browser.js';
@@ -57,3 +57,7 @@ export type { FetchLike, WebConfig } from './tools/index.js';
 export { globToRegExp, walkFiles } from './tools/search.js';
 export { parseImageSize, formatImageDescription, IMAGE_EXTS } from './tools/image.js';
 export { TODO_STATE_KEY } from './tools/interaction.js';
+export { RestartSupervisor } from './agent-backoff.js';
+export { planFileRevert, type GitStatusEntry, type RevertPlan } from './revert-plan.js';
+export { importClaudeSettings, type ImportReport } from './import-external.js';
+export { importCodexSettings, importCursorSettings, parseCodexMcpServers, mdcToSkillMd } from './import-more.js';
