@@ -25,6 +25,8 @@ interface Tab {
   id: number;
   /** 本轮工作开始时刻（R9 对标 ZCode「已工作 X 分 X 秒」）；send 时置位，done 清空 */
   workStartedAt: number | null;
+  /** 输出档位（R9-3）：最高/高/中/低 → maxTokens 32k/16k/8k/4k */
+  effort: string;
   sessionId: string | null;
   title: string;
   items: Item[];
@@ -233,10 +235,11 @@ function playDoneChime(): void {
   }
 }
 
-const SIDE_MENU: Array<{ view: View | 'new'; icon: string; label: string }> = [
+const SIDE_MENU: Array<{ view: View | 'new'; icon: string; label: string; target?: string }> = [
   { view: 'new', icon: '＋', label: '新建任务' },
   { view: 'search', icon: '🔍', label: '搜索' },
   { view: 'automations', icon: '⏰', label: '自动化' },
+  { view: 'settings', icon: '🛒', label: '插件市场', target: 'agent-plugins' },
   { view: 'skills', icon: '🛠', label: '技能' },
   { view: 'knowledge', icon: '🕸', label: '知识图谱' },
 ];
@@ -415,7 +418,7 @@ function ModeMenu({ mode, onPick }: { mode: string; onPick: (m: string) => void 
 }
 
 /** 统一输入框（欢迎页与会话页共用，对标 ZCode chat-composer-input-surface：rounded-2xl 单卡片） */
-function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPickWorkspace, mode, onModeChange, model, onModelClick, placeholder, centered, contextUsage }: {
+function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPickWorkspace, mode, onModeChange, model, onModelClick, placeholder, centered, contextUsage, effort, onEffortChange }: {
   input: string;
   setInput: (v: string | ((prev: string) => string)) => void;
   onSend: () => void;
@@ -431,6 +434,9 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
   placeholder: string;
   centered?: boolean;
   contextUsage?: { tokens: number; maxTokens: number; percent: number; level: string; suggest: string | null };
+  /** 输出档位（R9-3 对标 ZCode「最高 ▾」）：映射 maxTokens 经 session/set-params 生效 */
+  effort?: string;
+  onEffortChange?: (e: string) => void;
 }): ReactNode {
   const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string; content?: string; image?: string; thumb?: string }>>([]);
   const [previewAttach, setPreviewAttach] = useState<{ name: string; content?: string } | null>(null);
@@ -579,6 +585,15 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
           <button className="model-switch-btn" disabled={busy} onClick={onModelClick} title={t('选择模型')}>
             {model} <span className="chevron">▾</span>
           </button>
+          {onEffortChange && (
+            <select className="effort-select" value={effort ?? '高'} disabled={busy} title="输出档位（最大输出 tokens）"
+              onChange={(e) => onEffortChange(e.target.value)}>
+              <option value="最高">⚡ 最高</option>
+              <option value="高">高</option>
+              <option value="中">中</option>
+              <option value="低">低</option>
+            </select>
+          )}
           <ContextIndicator usage={contextUsage} />
           <span className="spacer" />
           <VoiceButton onText={(t) => setInput((p) => p + (p ? " " : "") + t)} />
@@ -943,6 +958,7 @@ function blankTab(): Tab {
   return {
     id: ++tabSeq,
     workStartedAt: null,
+    effort: '高',
     sessionId: null,
     title: `新会话 ${++tabSeq}`,
     items: [],
@@ -1434,6 +1450,13 @@ function App() {
     }
   }
 
+/** 输出档位映射（R9-3）：经 session/set-params 落到 chatParams.maxTokens */
+  const EFFORT_TOKENS: Record<string, number> = { '最高': 32768, '高': 16384, '中': 8192, '低': 4096 };
+  async function applyEffort(e: string): Promise<void> {
+    if (!tab.sessionId) return;
+    await window.bajin.rpc('session/set-params', { sessionId: tab.sessionId, maxTokens: EFFORT_TOKENS[e] ?? 16384 }).catch(() => undefined);
+  }
+
   async function send(): Promise<void> {
     const text = input.trim();
     if (!text || tab.busy) return;
@@ -1720,7 +1743,11 @@ function App() {
             <div
               key={m.label}
               className={`side-item ${m.view === 'new' ? 'side-item-accent' : ''} ${view === m.view ? 'on' : ''}`}
-              onClick={() => m.view === 'new' ? void newTab() : setView(m.view as View)}
+              onClick={() => {
+                if (m.view === 'new') { void newTab(); return; }
+                if (m.target) { setView('settings'); setSettingsSection(m.target as SettingsSection); return; }
+                setView(m.view as View);
+              }}
             >
               <span className="side-icon">{m.icon}</span>
               <span className="side-label">{t(m.label)}</span>
@@ -1859,6 +1886,11 @@ function App() {
             )}
           </div>
           <span className="spacer" />
+          {tabs.filter((t) => t.busy).length > 0 && (
+            <span className="bg-tasks" title={`${tabs.filter((t) => t.busy).length} 个任务在后台运行`}>
+              ⚡ {tabs.filter((t) => t.busy).length} 后台
+            </span>
+          )}
           <button
             className={`icon-only ${showTerminal ? 'on' : ''}`}
             title="终端（在当前工作目录打开 bash）"
@@ -2100,6 +2132,8 @@ function App() {
           }}
           mode={tab.mode}
           onModeChange={(m) => void changeMode(m)}
+          effort={tab.effort}
+          onEffortChange={(e) => { patchTab(tab.sessionId, (t) => ({ ...t, effort: e })); void applyEffort(e); }}
           model={tab.model}
           onModelClick={() => setShowModelPicker(true)}
           placeholder={tab.busy ? t('任务执行中…（可点「停止」中断）') : t('向 bajin 提问，使用 / 选择命令或能力')}
