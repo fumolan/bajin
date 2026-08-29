@@ -130,3 +130,4 @@ export * from './platform/index.js';
 export * from './browser-url.js';
 export * from './plan-view.js';
 export * from './tab-ops.js';
+export * from './task-icon.js';

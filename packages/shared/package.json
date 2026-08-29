@@ -25,6 +25,10 @@
     "./tab-ops": {
       "types": "./dist/tab-ops.d.ts",
       "default": "./dist/tab-ops.js"
+    },
+    "./task-icon": {
+      "types": "./dist/task-icon.d.ts",
+      "default": "./dist/task-icon.js"
     }
   },
   "scripts": {

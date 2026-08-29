@@ -6,6 +6,7 @@ import { renderMarkdown } from './markdown.js';
 import { highlightCode, langFromPath } from './highlight.js';
 import { normalizeBrowserUrl } from '@bajin/shared/browser-url';
 import { shouldCollapsePlan } from '@bajin/shared/plan-view';
+import { taskIcon } from '@bajin/shared/task-icon';
 import { closeOthers as tabCloseOthers, closeAll as tabCloseAll, reopenTab as tabReopenGeneric } from '@bajin/shared/tab-ops';
 
 /* ---------- 类型 ---------- */
@@ -22,6 +23,8 @@ type Item =
 interface Tab {
   /** 恢复定位用（R8-3）：创建序号，reopen 按它插回原位 */
   id: number;
+  /** 本轮工作开始时刻（R9 对标 ZCode「已工作 X 分 X 秒」）；send 时置位，done 清空 */
+  workStartedAt: number | null;
   sessionId: string | null;
   title: string;
   items: Item[];
@@ -90,6 +93,17 @@ type SettingsSection =
 let bajinPlatformId: string | null = null;
 const platformId = (): string =>
   (bajinPlatformId ??= navigator.platform.startsWith('Win') ? 'win32' : 'linux');
+
+/** 工作时长格式化（R9 对标 ZCode「已工作 1 分 51 秒」） */
+function formatWorkDuration(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  if (h > 0) return `${h} 小时 ${m} 分`;
+  if (m > 0) return `${m} 分 ${sec} 秒`;
+  return `${sec} 秒`;
+}
 
 /** Electron <webview> 最小接口（纯 web 包不含 electron 类型；运行时无 Electron 时不会触达） */
 interface ElectronWebviewTag {
@@ -420,6 +434,7 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
 }): ReactNode {
   const [attachments, setAttachments] = useState<Array<{ name: string; size: number; type: string; content?: string; image?: string; thumb?: string }>>([]);
   const [previewAttach, setPreviewAttach] = useState<{ name: string; content?: string } | null>(null);
+  const attachInputRef = useRef<HTMLInputElement | null>(null);
 
   function addAttachment(f: { name: string; size: number; type: string; content?: string; image?: string; thumb?: string }): void {
     if (attachments.length >= 5) return;
@@ -545,11 +560,21 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
         </div>
         <textarea
           value={input}
-          placeholder={placeholder}
+          placeholder={busy ? t('任务执行中…（可点「停止」中断）') : (input.trim() ? placeholder : t('提出后续修改要求，或描述新任务…'))}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
         />
         <div className="composer-bar">
+          <input ref={attachInputRef} type="file" multiple style={{ display: 'none' }}
+            onChange={(e) => {
+              for (const f of Array.from(e.target.files ?? [])) {
+                readFileContent(f,
+                  (content) => addAttachment({ name: f.name, size: f.size, type: f.type || 'unknown', content }),
+                  (r) => setAttachments((prev) => (prev.length >= 5 ? prev : [...prev, { name: f.name, size: f.size, type: f.type || 'image/png', image: r.image, thumb: r.thumb }])));
+              }
+              e.target.value = '';
+            }} />
+          <button className="composer-plus" title="添加附件（文本/图片）" onClick={() => attachInputRef.current?.click()}>＋</button>
           <ModeMenu mode={mode} onPick={onModeChange} />
           <button className="model-switch-btn" disabled={busy} onClick={onModelClick} title={t('选择模型')}>
             {model} <span className="chevron">▾</span>
@@ -560,7 +585,7 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
           {busy ? (
             <button className="send-btn stop-mode" onClick={onStop} title={t('停止（Esc）')}>⏹</button>
           ) : (
-            <button className="send-btn" onClick={onSend} disabled={disabled} title={t('发送（Enter）')}>↑</button>
+            <button className="send-btn round" onClick={onSend} disabled={disabled} title={t('发送（Enter）')}>↑</button>
           )}
         </div>
       </div>
@@ -796,6 +821,7 @@ function TaskListItem({ item, showProject, onOpen, onChanged, onGoSettings }: {
           />
         ) : (
           <>
+            <span className="task-ico">{taskIcon(item.title || item.sessionId || '')}</span>
             <span className={`history-title ${item.unread ? 'unread' : ''}`}>{item.unread ? '● ' : ''}{item.title || '(无标题)'}</span>
             <span className="history-time">{formatTaskTime(item.modifiedAt)}</span>
           </>
@@ -916,6 +942,7 @@ let tabSeq = 0;
 function blankTab(): Tab {
   return {
     id: ++tabSeq,
+    workStartedAt: null,
     sessionId: null,
     title: `新会话 ${++tabSeq}`,
     items: [],
@@ -1366,13 +1393,13 @@ function App() {
   reopenClosedTabRef.current = reopenClosedTab;
   activeRef.current = active;
 
-  /* 任务运行中每秒重渲染（工具卡耗时显示） */
+  /* 任务运行中/有工作时长时每秒重渲染（工具卡耗时 + 「已工作」显示） */
   const [, setClock] = useState(0);
   useEffect(() => {
-    if (!tab.busy) return;
+    if (!tab.busy && !tab.workStartedAt) return;
     const timer = setInterval(() => setClock((c) => c + 1), 1000);
     return () => clearInterval(timer);
-  }, [tab.busy]);
+  }, [tab.busy, tab.workStartedAt]);
 
   /* token 轮询 */
   useEffect(() => {
@@ -1424,7 +1451,7 @@ function App() {
         return;
       }
     }
-    patchTab(tab.sessionId, (t) => ({ ...t, busy: true, items: [...t.items, { kind: 'user', text }, { kind: 'assistant', text: '' }] }));
+    patchTab(tab.sessionId, (t) => ({ ...t, busy: true, workStartedAt: t.workStartedAt ?? Date.now(), items: [...t.items, { kind: 'user', text }, { kind: 'assistant', text: '' }] }));
     try {
       await window.bajin.rpc('send', { sessionId: tab.sessionId, text });
     } catch (err) {
@@ -1697,6 +1724,9 @@ function App() {
             >
               <span className="side-icon">{m.icon}</span>
               <span className="side-label">{t(m.label)}</span>
+              {(m.label === '新建任务' || m.label === '搜索') && (
+                <span className="side-kbd">{m.label === '新建任务' ? 'Ctrl+N' : 'Ctrl+K'}</span>
+              )}
             </div>
           ))}
         </div>
@@ -1773,9 +1803,12 @@ function App() {
           )}
         </div>
         <div className="side-foot">
-          <span className="tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
+          <span className="user-chip" title="bajin 本地用户">
+            <span className="user-avatar">B</span>
+            <span className="user-name">本地用户</span>
+          </span>
+          <span className="tokens" title="当前会话 tokens">{tab.tokens > 1000 ? `${Math.round(tab.tokens / 1000)}k` : tab.tokens || '—'} tk</span>
           <span className="spacer" />
-          <span className="build-tag" title="构建标识（用于确认版本）">bajin 0.1.0 · build 62</span>
           {/* 非 settings 分支内 view 已被收窄（不含 'settings'），切换即进入设置页 */}
           <button
             className="side-settings"
@@ -1789,16 +1822,13 @@ function App() {
 
       {view === 'chat' ? (
       <div className="main">
-        {/* 顶栏（工作区下拉 + 标签 + 操作合一，对标 ZCode 单条顶栏） */}
+        {/* 顶栏（面包屑 + 标签 + 操作合一，对标 ZCode「任务名 📁 项目 ⋯」单条顶栏） */}
         <div className="topbar">
-          <WorkspaceChip
-            cwd={tab.cwd}
-            onPick={(dir) => {
-              if (dir === (tab.cwd ?? null)) return;
-              if (dir) void newTabIn(dir);
-              else void newTab();
-            }}
-          />
+          <div className="crumb" title={tab.sessionId ?? ''}>
+            <span className="crumb-title">{tab.title || '会话'}</span>
+            {tab.cwd && <span className="crumb-sep">›</span>}
+            {tab.cwd && <span className="crumb-proj">📁 {tab.cwd.split('/').pop()}</span>}
+          </div>
           <div className="topbar-tabs">
             {tabs.map((t, i) => (
               <div key={t.sessionId ?? `blank-${i}`} className={`tab ${i === active ? 'active' : ''}`} onClick={() => setActive(i)}
@@ -1860,6 +1890,11 @@ function App() {
 
         {/* 消息流 + 右侧状态面板（对标 ZCode chat.statusPanel）；左栏可选文件树 */}
         <div className="chat-row">
+        {tab.workStartedAt && (
+          <div className="work-timer" title="本轮会话累计工作时长（发送首条消息起）">
+            {tab.busy ? '已工作' : '上次工作'} {formatWorkDuration(Date.now() - tab.workStartedAt)}
+          </div>
+        )}
         {showProcMonitor && (<ProcessMonitorPanel onClose={() => setShowProcMonitor(false)} />)}
         {editorFile && (<FileEditorPanel filePath={editorFile} onClose={() => setEditorFile(null)} />)}
         {showFileTree && <FileTreePanel cwd={tab.cwd} onPick={(p) => setInput(`Read ${p}`)} onEdit={(p) => setEditorFile(p)} />}

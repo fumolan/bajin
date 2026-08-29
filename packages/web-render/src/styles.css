@@ -1729,3 +1729,53 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
   border-radius: 5px; cursor: pointer;
 }
 .tab-menu-item:hover { background: var(--panel-2); color: var(--text); }
+
+/* ═══ R9 视觉对齐 ZCode ═══ */
+/* 任务列表 emoji 图标（对标 ZCode 彩色任务图标） */
+.task-ico {
+  flex: none; width: 22px; height: 22px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; background: var(--panel-2);
+}
+/* 侧栏菜单快捷键标注（Ctrl+N/K 右对齐灰字，对标 ZCode） */
+.side-kbd {
+  margin-left: auto; font-size: 10.5px; color: var(--dim);
+  font-family: ui-monospace, monospace;
+}
+.side-item:hover .side-kbd { color: var(--text-soft); }
+/* 底部用户区（对标 ZCode 头像+用户名） */
+.user-chip { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.user-avatar {
+  width: 22px; height: 22px; border-radius: 50%; flex: none;
+  background: linear-gradient(135deg, var(--accent), #7c5cff);
+  color: #fff; font-size: 11px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.user-name { font-size: 12px; color: var(--text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 会话工作时长（对标 ZCode「已工作 1 分 51 秒」） */
+.work-timer {
+  flex: none; text-align: center; font-size: 12px; color: var(--dim);
+  padding: 6px 0 0; user-select: none;
+}
+/* 顶栏面包屑（对标 ZCode「任务名 › 📁 项目」） */
+.crumb { display: inline-flex; align-items: center; gap: 6px; flex: none; max-width: 260px; padding-left: 10px; }
+.crumb-title { font-size: 12.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crumb-sep { color: var(--dim); }
+.crumb-proj { font-size: 12px; color: var(--text-soft); background: var(--panel-2); border-radius: var(--r-pill); padding: 1px 8px; white-space: nowrap; }
+/* Composer：+ 附件按钮 + 圆形渐变发送（对标 ZCode） */
+.composer-plus {
+  width: 26px; height: 26px; border-radius: 50%; flex: none;
+  background: var(--panel-2); border: 1px solid var(--border);
+  color: var(--text-soft); font-size: 15px; cursor: pointer; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: border-color .12s, color .12s;
+}
+.composer-plus:hover { border-color: var(--accent); color: var(--text); }
+.send-btn.round {
+  width: 30px; height: 30px; border-radius: 50%; border: none;
+  background: linear-gradient(135deg, var(--accent), #7c5cff);
+  color: #fff; font-size: 15px; font-weight: 600;
+  box-shadow: 0 2px 8px rgba(90, 148, 255, 0.35);
+}
+.send-btn.round:disabled { opacity: .45; box-shadow: none; }
+.send-btn.stop-mode { border-radius: 50%; width: 30px; height: 30px; }
