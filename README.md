@@ -6,7 +6,7 @@
 
 ```bash
 pnpm install
-pnpm build        # 构建 shared → core → cli
+pnpm build        # 构建 shared → core → web-render → cli
 pnpm test         # vitest 全部测试
 
 # 无 key 冒烟
@@ -18,19 +18,15 @@ node packages/cli/bin/bajin.js            # 交互式 REPL
 node packages/cli/bin/bajin.js -p "统计当前目录的 ts 文件数"   # headless
 ```
 
-## 桌面端（Electron）
+## 网页端（主要使用方式）
 
-架构对标 ZCode：桌面端只是壳，agent 跑在独立的 CLI 子进程（`bajin app-server --stdio`，按行 JSON-RPC + 流事件 + 审批往返），由 Electron 自带 node 运行时以 `ELECTRON_RUN_AS_NODE=1` 拉起单文件 bundle（`dist/bundle/bajin.cjs`，对标 zcode.cjs）。
+`bajin server` 起本地服务，浏览器访问 `http://localhost:4444`——与原桌面端同一套 React 聊天 UI
+（流式输出/工具卡片/内联审批/通知中心/浏览器面板/系统监控），零桌面依赖。
 
 ```bash
-pnpm build && pnpm bundle:cli
-pnpm desktop:dev      # 本地运行（无 key 自动降级 mock）
-pnpm desktop:dist     # electron-builder 打包当前平台
+pnpm build            # 全 workspace 构建（含 @bajin/web-render 渲染层）
+node packages/cli/dist/main.js server --port 4444 --mock   # 无 key 降级 mock
 ```
-
-多平台打包（Linux AppImage/deb · Windows nsis/portable · macOS dmg/zip）：推 CI 触发
-`bajin-v*` tag，或在 GitHub Actions 手动运行 `bajin desktop build` 工作流
-（`my-code/.github/workflows/bajin-desktop.yml`，三平台矩阵构建并上传产物）。
 
 ## 结构
 
@@ -38,8 +34,8 @@ pnpm desktop:dist     # electron-builder 打包当前平台
 |---|---|
 | `@bajin/shared` | 消息/工具/权限的类型契约（zod schema → JSON Schema） |
 | `@bajin/core` | agent 循环、GLM provider（fetch+SSE 直连 open.bigmodel.cn）、8 个内置工具、权限策略 |
-| `@bajin/cli` | REPL + headless `--print` + `app-server --stdio`（桌面端后端）+ 单文件 bundle |
-| `@bajin/desktop` | Electron 壳：main（子进程管理/IPC）+ preload + React 聊天 UI（流式/工具卡片/内联审批） |
+| `@bajin/cli` | REPL + headless `--print` + `app-server --stdio` + `server`（网页端）+ 单文件 bundle |
+| `@bajin/web-render` | React 聊天 UI（web 渲染层，IIFE 单 bundle，bajin server 直接 serve） |
 
 ## 内置工具
 
@@ -88,7 +84,7 @@ pnpm desktop:dist     # electron-builder 打包当前平台
 ## 路线图
 
 - [x] Phase 1 内核：agent 循环 + GLM + 8 工具 + 权限 + REPL/headless
-- [x] Phase 4a 桌面端 MVP：app-server（stdio JSON-RPC）+ Electron 壳 + 单文件 bundle + 三平台打包/CI
+- [x] Phase 4a 聊天前端 MVP：app-server（stdio JSON-RPC）+ React UI（原 Electron 壳，2026-08-29 起转型纯网页端，桌面 app 移除）
 - [ ] Phase 2 会话持久化（SQLite、--continue/--resume、AGENTS.md 注入）
 - [ ] Phase 3 扩展体系（skills / commands / hooks / MCP / plugins）
 - [ ] Phase 4b 桌面端增强（终端面板、diff 审批视图、工作区选择、设置页）

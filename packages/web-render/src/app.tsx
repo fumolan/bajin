@@ -91,6 +91,16 @@ let bajinPlatformId: string | null = null;
 const platformId = (): string =>
   (bajinPlatformId ??= navigator.platform.startsWith('Win') ? 'win32' : 'linux');
 
+/** Electron <webview> 最小接口（纯 web 包不含 electron 类型；运行时无 Electron 时不会触达） */
+interface ElectronWebviewTag {
+  loadURL(url: string): Promise<void>;
+  executeJavaScript<T = unknown>(code: string): Promise<T>;
+  setZoomFactor(f: number): void;
+  reload(): void;
+  addEventListener(type: string, fn: (e: Event) => void): void;
+  removeEventListener(type: string, fn: (e: Event) => void): void;
+}
+
 /** 浏览器（web shim）模式：webview 内嵌浏览器等 Electron 专属能力降级隐藏 */
 const IS_WEB = !!(window as { bajin?: { __web?: boolean } }).bajin?.__web;
 /** 长会话默认渲染窗口（尾部锚定，滚顶加载更早 200 条） */
@@ -2789,7 +2799,7 @@ function BrowserPanel({ directive, onClose }: { directive: { url?: string; viewp
   const chunksRef = useRef<Blob[]>([]);
   // Electron 环境（有 process.versions.electron）用 <webview>；浏览器用 <iframe>
   const isElectron = typeof process !== 'undefined' && process.versions?.electron;
-  const webviewRef = useRef<Electron.WebviewTag>(null);
+  const webviewRef = useRef<ElectronWebviewTag>(null);
   useEffect(() => {
     const off = window.bajin.onBrowserNavigate((u) => setUrl(u));
     return off;
@@ -2986,11 +2996,8 @@ function BrowserPanel({ directive, onClose }: { directive: { url?: string; viewp
       </div>
       {loadError && <div className="browser-err">⚠ {loadError}</div>}
       <div className="browser-stage" key={reloadKey}>
-        {isElectron ? (
-          <webview ref={webviewRef} className="browser-view" style={{ width: vw, height: vh }} src={url || 'about:blank'} allowpopups={true} />
-        ) : (
-          <iframe className="browser-view" style={{ width: vw, height: vh, zoom }} src={url || 'about:blank'} sandbox="allow-scripts allow-same-origin allow-forms" title="browser" />
-        )}
+        {/* 纯 web 包：一律 iframe（原 Electron <webview> 分支随桌面 app 移除） */}
+        <iframe className="browser-view" style={{ width: vw, height: vh, zoom }} src={url || 'about:blank'} sandbox="allow-scripts allow-same-origin allow-forms" title="browser" />
       </div>
       {playUrl && (
         <div className="rec-overlay" onClick={() => { if (playUrl !== '__LIST__') setPlayUrl(null); }}>

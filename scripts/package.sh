@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bajin 一键打包脚本：构建 → 测试 → CLI bundle → 安装包 → 打包态冒烟
-# 平台自适应：Linux 打 AppImage；Windows（Git Bash）打 NSIS 安装包 exe
+# 纯网页端打包：构建+类型检查+测试+CLI bundle+打包态 RPC 冒烟（桌面 AppImage 已移除）
 # 用法：
 #   ./scripts/package.sh              # 全流程（含安装包）
 #   ./scripts/package.sh --fast       # 跳过安装包（只构建+测试+bundle+冒烟）
@@ -10,21 +10,9 @@ set -euo pipefail
 export NO_COLOR=1 FORCE_COLOR=0
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# 版本号直接从 apps/desktop/package.json 提取（不走 node：Git Bash 的 /e/… 路径 node.exe 解析不了）
-VERSION="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$ROOT/apps/desktop/package.json" | head -1)"
-# 平台检测：Linux → AppImage；MINGW/MSYS（Git Bash）→ NSIS exe
-case "$(uname -s)" in
-  MINGW*|MSYS*|CYGWIN*) PLATFORM="win" ;;
-  Darwin*)              PLATFORM="mac" ;;
-  *)                    PLATFORM="linux" ;;
-esac
-case "$PLATFORM" in
-  win)   INSTALLER_OUT="$ROOT/apps/desktop/release/bajin-${VERSION}-win-x64.exe"
-         PACKAGED_CJS="$ROOT/apps/desktop/release/win-unpacked/resources/bajin/bajin.cjs" ;;
-  *)     # electron-builder 默认产物名用 x86_64（非 x64），stat 名字对不上会让 OUT_MB 算术报错
-         INSTALLER_OUT="$ROOT/apps/desktop/release/bajin-${VERSION}-linux-x86_64.AppImage"
-         PACKAGED_CJS="$ROOT/apps/desktop/release/linux-unpacked/resources/bajin/bajin.cjs" ;;
-esac
+# 版本号直接从 packages/cli/package.json 提取（不走 node：Git Bash 的 /e/… 路径 node.exe 解析不了）
+VERSION="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$ROOT/packages/cli/package.json" | head -1)"
+PACKAGED_CJS=""  # 打包态冒烟目标：无安装包，恒用 cli bundle
 BUNDLED_CJS="$ROOT/packages/cli/dist/bundle/bajin.cjs"
 LOG_LINES=10
 FAST=0
@@ -93,66 +81,19 @@ pnpm --filter @bajin/cli bundle > /dev/null 2>&1
 BUNDLE_KB=$(du -k "$BUNDLED_CJS" | cut -f1)
 ok "bundle 生成：${BUNDLE_KB} KB（完成标准 < 1024 KB）"
 
-# ── 4. 安装包 ───────────────────────────────────────────────────────────
-if [[ $FAST -eq 1 ]]; then
-  step "跳过安装包（--fast）"
-else
-  if [[ "$PLATFORM" == "win" ]]; then
-    step "打包 Windows 安装包（electron-builder NSIS exe）"
-    eb_win() { ( cd apps/desktop && \
-      ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ \
-      ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ \
-      pnpm exec electron-builder --win nsis > /tmp/bajin-installer.log 2>&1 ); }
-    # winCodeSign 工具包内的 darwin 软链（libcrypto.dylib 等）在无管理员/开发者模式权限时解不开，
-    # 但对 win 打包无用。app-builder 解压成功后内容落在正式缓存名 winCodeSign-2.6.0（命中即跳过下载解压）；
-    # 这里直接把 electron-builder 失败重试留下的 .7z 下载产物解到正式名（忽略 2 个软链错误），让重试必过。
-    preextract_wincodesign() {
-      local SEVENZ fz final
-      SEVENZ="$(find "$ROOT/node_modules/.pnpm" -maxdepth 7 -path '*7zip-bin/win/x64/7za.exe' 2>/dev/null | head -1 || true)"
-      local CSDIR="${LOCALAPPDATA:-}/electron-builder/Cache/winCodeSign"
-      final="$CSDIR/winCodeSign-2.6.0"
-      [[ -n "$SEVENZ" && -d "$CSDIR" && ! -f "$final/rcedit-x64.exe" ]] || return 0
-      fz="$(ls -t "$CSDIR"/*.7z 2>/dev/null | head -1 || true)"
-      [[ -n "$fz" ]] || return 0
-      note "构建 winCodeSign 正式缓存（忽略 darwin 软链错误）：$(basename "$fz") → winCodeSign-2.6.0"
-      "$SEVENZ" x -y -bd "$fz" "-o$final" > /dev/null 2>&1 || true
-    }
-    # 预清空 win-unpacked：electron-builder 重建前要删它，被占用时（IDE 索引/杀软/残留 bajin.exe）会在深处报
-    # "The process cannot access the file"——这里先删，失败即给出可读原因，不在构建栈里翻错误
-    if [[ -d apps/desktop/release/win-unpacked ]] && ! rm -rf apps/desktop/release/win-unpacked 2>/dev/null; then
-      fail "release/win-unpacked 被占用，无法清空"
-      note "常见占用者：上次打包后仍开着的 bajin.exe、IDE 对构建产物的文件索引/预览（如 ZCode/WebStorm）、杀软扫描"
-      note "处理：关掉相关预览/进程后重跑；或临时换输出目录：electron-builder --win --config.directories.output=release-fresh"
-      exit 1
-    fi
-    preextract_wincodesign
-    if ! eb_win; then
-      # 首次运行时 electron-builder 在构建中才下载所需版本工具包，预解压新包后重试一次
-      preextract_wincodesign
-      eb_win || { fail "NSIS 打包失败"; tail -20 /tmp/bajin-installer.log; exit 1; }
-    fi
-    OUT_MB=$(( $(stat -c%s "$INSTALLER_OUT" 2>/dev/null || echo 0) / 1024 / 1024 ))
-    ok "安装包生成：${OUT_MB} MB"
-  else
-    step "打包 AppImage（electron-builder）"
-    ( cd apps/desktop && \
-      ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ \
-      ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ \
-      pnpm exec electron-builder --linux AppImage > /tmp/bajin-installer.log 2>&1 ) \
-      || { fail "AppImage 打包失败"; tail -20 /tmp/bajin-installer.log; exit 1; }
-    OUT_MB=$(( $(stat -c%s "$INSTALLER_OUT" 2>/dev/null || echo 0) / 1024 / 1024 ))
-    ok "AppImage 生成：${OUT_MB} MB"
-  fi
-fi
+# ── 4. web 渲染层产物验证（网页端唯一"安装产物"） ─────────────────────────
+step "web 渲染层产物验证"
+WR_JS="$ROOT/packages/web-render/dist/renderer/app.js"
+WR_CSS="$ROOT/packages/web-render/src/styles.css"
+[[ -s "$WR_JS" ]] || { fail "web-render app.js 缺失（先 pnpm build）"; exit 1; }
+[[ -s "$WR_CSS" ]] || { fail "web-render styles.css 缺失"; exit 1; }
+WR_KB=$(du -k "$WR_JS" | cut -f1)
+ok "web 渲染层 app.js：${WR_KB} KB + styles.css 就绪（bajin server 直接 serve））"
 
 # ── 5. 打包态冒烟（走真实打包产物 bajin.cjs 的 app-server RPC） ──────────
 step "打包态冒烟（app-server RPC）"
 SMOKE_TARGET="$BUNDLED_CJS"
-[[ $FAST -eq 0 && -f "$PACKAGED_CJS" ]] && SMOKE_TARGET="$PACKAGED_CJS" && note "目标: 打包内 bajin.cjs" || note "目标: packages/cli bundle"
-# Git Bash 下把 /e/… 转成 node.exe 可解析的 E:/… 混合路径（MSYS 对 `-` 后的参数不自动转换）
-if [[ "$PLATFORM" == "win" ]] && command -v cygpath >/dev/null 2>&1; then
-  SMOKE_TARGET="$(cygpath -m "$SMOKE_TARGET")"
-fi
+note "目标: packages/cli bundle"
 SMOKE_RESULT=$(mktemp)
 node - "$SMOKE_TARGET" << 'NODE' | tee "$SMOKE_RESULT"
 const [, , cjs] = process.argv;
@@ -195,11 +136,7 @@ ELAPSED=$(( $(date +%s) - START_TS ))
 step "完成（耗时 ${ELAPSED}s）"
 echo "  测试    ：$TOTALS/全部通过"
 echo "  CLI     ：$BUNDLED_CJS（${BUNDLE_KB} KB）"
-if [[ $FAST -eq 0 ]]; then
-  echo "  安装包  ：$INSTALLER_OUT（${OUT_MB} MB）"
-  echo ""
-  echo "  直接运行检查："
-  echo "    $INSTALLER_OUT"
-else
-  echo "  （--fast 模式未打安装包）"
-fi
+echo "  网页端  ：bajin server --port 4444（渲染层 ${WR_KB:-?} KB 就绪）"
+echo ""
+echo "  启动检查："
+echo "    node $BUNDLED_CJS server --port 4444 --mock"

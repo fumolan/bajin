@@ -11,10 +11,9 @@
 5. [添加新工具](#5-添加新工具)
 6. [添加新 Provider](#6-添加新-provider)
 7. [配置参考](#7-配置参考)
-8. [桌面端开发](#8-桌面端开发)
-9. [打包与发布](#9-打包与发布)
-10. [调试技巧](#10-调试技巧)
-11. [FAQ](#11-faq)
+8. [打包与发布](#8-打包与发布)
+9. [调试技巧](#9-调试技巧)
+10. [FAQ](#10-faq)
 
 ---
 
@@ -56,7 +55,7 @@ node packages/cli/dist/main.js -p "hello" --mock
 ### 构建
 
 ```bash
-# 全量构建（shared → core → cli → desktop）
+# 全量构建（shared → core → web-render → cli）
 pnpm -r build
 
 # 单包构建
@@ -88,8 +87,8 @@ cd packages/core && npx vitest run test/hooks.test.ts
 
 ```bash
 bash scripts/package.sh
-# 执行: pnpm -r build → test → bundle → electron-builder → AppImage 冒烟
-# 产出: apps/desktop/release/bajin-*.AppImage
+# 执行: pnpm -r build → test → bundle → web-render 产物校验 → app-server RPC 冒烟
+# 产出: packages/cli/dist/bundle/bajin.cjs + packages/web-render/dist/renderer/app.js
 ```
 
 ---
@@ -104,8 +103,8 @@ bajin/
 │   ├── src/tools/     # 23 个内置工具
 │   └── src/providers/ # 模型接入层
 ├── packages/cli/      # CLI 入口（~3000 行）
-│   └── src/app-server.ts  # 桌面端后端 RPC
-├── apps/desktop/      # Electron（~3500 行）
+│   └── src/app-server.ts  # 网页端/REPL 共用后端 RPC
+
 │   └── src/renderer/app.tsx  # 主 UI 组件
 ├── scripts/package.sh # 打包脚本
 ├── docs/              # 文档
@@ -319,41 +318,7 @@ if (ep.apiFormat === 'myformat') {
 
 ---
 
-## 8. 桌面端开发
-
-### 开发模式
-
-```bash
-cd apps/desktop
-npx electron .          # 直接运行
-npx electron . --dev    # 打开 DevTools
-```
-
-### 关键文件
-
-| 文件 | 说明 |
-|---|---|
-| `src/main/index.ts` | 主进程：窗口/IPC/子进程管理 |
-| `src/preload/index.ts` | contextBridge：渲染层安全 API |
-| `src/renderer/app.tsx` | React 主组件（所有 UI） |
-| `src/renderer/styles.css` | 主题 CSS（暗/浅双套变量） |
-
-### IPC 通道列表
-
-| 通道 | 方向 | 用途 |
-|---|---|---|
-| `bajin:rpc` | renderer→main | 通用 RPC 透传到 CLI |
-| `bajin:event` | main→renderer | 事件推送（text-delta/tool-call 等） |
-| `bajin:bootstrap` | renderer→main | 启动引导 |
-| `bajin:pick-dir` | renderer→main | 原生目录选择 |
-| `bajin:term:*` | 双向 | 终端面板 |
-| `bajin:browser:*` | 双向 | 浏览器面板 |
-| `bajin:config:*` | renderer→main | 设置读写 |
-| `bajin:notify` | renderer→main | 系统通知 |
-
----
-
-## 9. 打包与发布
+## 8. 打包与发布
 
 ### CLI 单文件
 
@@ -363,16 +328,12 @@ pnpm --filter @bajin/cli bundle
 # 可直接 node bajin.cjs 运行
 ```
 
-### AppImage
+### 网页端起服
 
 ```bash
-bash scripts/package.sh
-# 或手动:
-cd apps/desktop
-ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ \
-ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/ \
-npx electron-builder --linux AppImage
-# 产出: apps/desktop/release/bajin-*.AppImage (~104MB)
+bash scripts/package.sh   # 构建+测试+bundle+web-render 产物校验+RPC 冒烟
+node packages/cli/dist/bundle/bajin.cjs server --port 4444
+# 浏览器访问 http://localhost:4444（渲染层由 web-server 直接 serve）
 ```
 
 ### SSH 远程部署
@@ -381,13 +342,13 @@ npx electron-builder --linux AppImage
 # 把 CLI bundle 传到远程
 scp packages/cli/dist/bundle/bajin.cjs remote:/opt/bajin/
 
-# 桌面端配置 SSH 远程工作区（设置 → Agent → 项目 → SSH）
+# SSH 远程工作区配置（设置 → Agent → 项目 → SSH；当前 web 模式为 stub）
 # 主进程会 ssh user@host node /opt/bajin/bajin.cjs app-server --stdio
 ```
 
 ---
 
-## 10. 调试技巧
+## 9. 调试技巧
 
 ### 查看模型 IO 日志
 
@@ -399,7 +360,7 @@ cat ~/.bajin/rollout/model-io-<sessionId>.jsonl | jq .
 ### 查看 Agent 事件流
 
 ```bash
-# 桌面端 DevTools console（--dev 模式）
+# 浏览器 DevTools console（F12）
 # 或 CLI REPL 中观察 stderr 输出
 ```
 
@@ -422,7 +383,7 @@ node packages/cli/dist/main.js app-server --stdio 2>&1 | head -20
 
 ---
 
-## 11. FAQ
+## 10. FAQ
 
 **Q: 如何切换模型？**
 A: 对话中 `/model glm-4.7-flash`，或设置 → 模型设置 → 供应商管理。

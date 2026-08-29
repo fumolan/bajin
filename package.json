@@ -6,11 +6,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "build": "pnpm -r --filter './packages/*' build",
-    "test": "pnpm -r --filter './packages/*' test",
+    "build": "pnpm -r --filter './packages/*' --filter @bajin/web-render build",
+    "test": "pnpm -r --filter './packages/*' --filter @bajin/web-render test",
     "typecheck": "pnpm -r typecheck",
-    "bundle:cli": "pnpm --filter @bajin/cli bundle",
-    "desktop:dev": "pnpm --filter @bajin/desktop dev",
-    "desktop:dist": "pnpm build && pnpm bundle:cli && pnpm --filter @bajin/desktop dist"
+    "bundle:cli": "pnpm --filter @bajin/cli bundle"
   }
 }

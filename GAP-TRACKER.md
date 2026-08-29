@@ -12,7 +12,7 @@
 1. 功能面：下方 backlog 全部条目完成或明确标记「不做+理由」
 2. 测试：`pnpm -r test` ≥ 150 项且全绿
 3. 内核：单文件 bundle（dist/bundle/bajin.cjs）< 1MB，CLI 冒烟通过
-4. 桌面：AppImage 打包通过，打包态 app-server 协议冒烟通过
+4. 网页端：scripts/package.sh 通过（build/typecheck/test + cli bundle + web-render 产物校验 + 打包态 app-server RPC 冒烟）；bajin server 起服后浏览器可用（2026-08-29 起桌面 AppImage 移除，本条由 AppImage 标准改写）
 5. 文档：README 与本账本与实际功能一致
 
 ## 硬性约束（每次运行必须遵守）
@@ -22,7 +22,7 @@
 - 不修改 `参考/`、`~/.zcode/`（只读）；不引入未声明的全局工具
 - **全绿底线**：任何时刻 `pnpm -r build && pnpm -r test` 必须通过；一次运行只做 1-2 个可验证增量，宁小勿破；大特性切最小可用切片
 - **执行时间戳（2026-08-17 用户新增）**：每轮最终报告的**第一行**必须输出执行时间——运行 `date '+%Y-%m-%d %H:%M:%S %A'` 并原样粘贴（不让模型自己推算时间）；运行日志表的时间列同样用该命令取值；本地 git commit 的时间戳作为第三方核验来源（`git log --format='%h %ci %s'`）
-- **用户可检查性（2026-08-16 用户批评后新增）**：每轮产出必须可被用户在启动 AppImage 后验证——凡涉及 core/cli 且面向用户的变更，当轮必须重打 AppImage（scripts/package.sh，不能只 bundle CLI）；连续两轮无 UI 可见产出时，下一轮强制选 UI 可感知条目（backlog 里 P1 体验项优先）；纯内核轮需在日志注明「本轮无 UI 变化」并给出用户验证方式（如 CLI 命令）
+- **用户可检查性（2026-08-16 用户批评后新增）**：每轮产出必须可被用户验证——凡涉及 core/cli 且面向用户的变更，当轮必须跑 scripts/package.sh 并以 `bajin server` 起服实测（不能只 bundle CLI）；连续两轮无 UI 可见产出时，下一轮强制选 UI 可感知条目（backlog 里 P1 体验项优先）；纯内核轮需在日志注明「本轮无 UI 变化」并给出用户验证方式（如 CLI 命令）
 - 开工先修坏：若基线校验失败，先修复，本轮不做新功能
 
 ## 已完成（截至 2026-08-14）

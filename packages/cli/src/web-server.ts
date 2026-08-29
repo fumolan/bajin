@@ -288,7 +288,7 @@ export function startWebServer(opts: WebServerOptions): http.Server {
       }
       // styles.css
       if (url.pathname === '/styles.css') {
-        const cssPath = findFile('styles.css', 'apps/desktop/src/renderer/styles.css');
+        const cssPath = findFile('styles.css', 'packages/web-render/src/styles.css');
         if (cssPath) sendStatic(req, res, fs.readFileSync(cssPath), 'text/css; charset=utf-8');
         else { res.writeHead(404); res.end('styles.css not found'); }
         return;
@@ -300,7 +300,7 @@ export function startWebServer(opts: WebServerOptions): http.Server {
       }
       // app-web.js（编译后的 React 渲染层）
       if (url.pathname === '/app-web.js') {
-        const jsPath = findFile('app-web.js', 'apps/desktop/dist/renderer/app.js');
+        const jsPath = findFile('app-web.js', 'packages/web-render/dist/renderer/app.js');
         if (jsPath) sendStatic(req, res, fs.readFileSync(jsPath), 'application/javascript; charset=utf-8');
         else { res.writeHead(404); res.end('app-web.js not found'); }
         return;
@@ -618,6 +618,7 @@ function getWebBridge(): string {
   }
 
   window.bajin = {
+    __web: true, // 渲染层 IS_WEB 判定依据（web 模式隐藏 Electron 专属分支/分享链接走 ?session=）
     // 通用 RPC
     async rpc(method, params) {
       const r = await post('/api/rpc', { method, params });

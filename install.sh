@@ -22,36 +22,9 @@ esac
 INSTALL_DIR="$HOME/.local/bin"
 mkdir -p "$INSTALL_DIR"
 
-# 下载 URL
-VERSION="0.1.0"
-URL="https://github.com/fumolan/bajin/releases/latest/download/bajin-${VERSION}-linux-${ARCH}.AppImage"
-TARGET="$INSTALL_DIR/bajin"
-
-echo "下载 bajin ${VERSION} (${ARCH})..."
-if command -v curl &>/dev/null; then
-  curl -fSL "$URL" -o "$TARGET"
-elif command -v wget &>/dev/null; then
-  wget -q "$URL" -O "$TARGET"
-else
-  echo -e "${RED}需要 curl 或 wget${NC}"; exit 1
-fi
-
-chmod +x "$TARGET"
-echo -e "${GREEN}✓ 已安装到 $TARGET${NC}"
-
-# 桌面快捷方式
-DESKTOP_DIR="$HOME/.local/share/applications"
-mkdir -p "$DESKTOP_DIR"
-cat > "$DESKTOP_DIR/bajin.desktop" << DESKTOP
-[Desktop Entry]
-Name=bajin
-Comment=净室复刻的编码代理
-Exec=$TARGET
-Type=Application
-Categories=Development;
-DESKTOP
-
-echo -e "${GREEN}✓ 桌面快捷方式已创建${NC}"
-echo ""
-echo -e "运行: ${BOLD}bajin${NC}（或从应用菜单启动）"
-echo -e "Web 模式: ${BOLD}bajin server${NC} 然后打开 http://localhost:4444"
+# 源码安装（网页端）：clone + pnpm 构建，bajin server 起服使用
+echo "安装方式已转型：bajin 现为纯网页端（无 AppImage）。"
+echo "请执行："
+echo "  git clone https://github.com/fumolan/bajin && cd bajin"
+echo "  pnpm install && pnpm build"
+echo "  node packages/cli/dist/main.js server --port 4444"
