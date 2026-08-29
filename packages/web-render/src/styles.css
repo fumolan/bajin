@@ -4,7 +4,7 @@
    ============================================================ */
 
 /* ---- 浅色主题（对标 ZCode settings.appearance：浅色调）---- */
-[data-theme='light'] {
+:root[data-theme='light'] {
   --bg: #f5f6f8;
   --panel: #ffffff;
   --panel-2: #eef0f4;
@@ -1562,7 +1562,7 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
 
 /* 通知中心（右下角 🔔 + 历史面板） */
 .notif-fab {
-  position: fixed; right: 16px; bottom: 16px; z-index: 300;
+  position: fixed; right: 16px; bottom: 84px; z-index: 300; /* 避开 Composer 右下发送按钮 */
   width: 36px; height: 36px; border-radius: 50%;
   background: var(--panel-2); border: 1px solid var(--border);
   cursor: pointer; font-size: 15px; line-height: 1;
@@ -1844,3 +1844,30 @@ textarea.ta:focus { outline: none; border-color: var(--accent); }
 .ref-card:hover { border-color: var(--accent); transform: translateY(-1px); }
 .ref-ico { flex: none; }
 .ref-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ═══ R10-1 动画细节（对标 ZCode 顺滑感） ═══ */
+/* 新消息淡入上浮（复用已有 fadein keyframes） */
+.msg { animation: fadein .18s ease-out; }
+/* 流式中的 assistant 光标行不重复触发整卡动画 */
+.msg.assistant { animation-duration: .16s; }
+/* 面板展开过渡（终端/文件树/Git/系统监控共享的下行面板） */
+.proc-monitor, .git-panel, .file-tree-panel, .file-editor, .terminal-panel {
+  animation: panel-in .16s ease-out;
+}
+@keyframes panel-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+/* 通知面板与弹层 */
+.notif-panel, .model-picker, .rec-overlay { animation: panel-in .14s ease-out; }
+/* 侧栏任务行 hover 平滑 */
+.history-item, .ft-item, .log-row { transition: background-color .12s ease; }
+/* 工具卡展开收起：轻微高度过渡（max-height 无法感知内容，改为透明度） */
+.tool-output { transition: opacity .15s ease; }
+.tool-output.collapsed { opacity: 0; }
+.tool-output:not(.collapsed) { opacity: 1; }
+/* 按钮/输入统一微过渡 */
+button, .icon-btn, .primary, .tab { transition: background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease; }
+/* 尊重系统减弱动态偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .msg, .proc-monitor, .git-panel, .file-tree-panel, .file-editor, .terminal-panel,
+  .notif-panel, .model-picker, .rec-overlay { animation: none; }
+  .bg-tasks, .voice-btn.on, .icon-btn.rec-on { animation: none; }
+}

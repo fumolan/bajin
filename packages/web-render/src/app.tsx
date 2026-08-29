@@ -1440,6 +1440,8 @@ function App() {
       else if (k === 'w') { e.preventDefault(); closeTabRef.current(activeRef.current); }
       else if (k === 'm') { e.preventDefault(); window.dispatchEvent(new CustomEvent('bajin:voice-toggle')); }
       else if (k === 't' && e.shiftKey) { e.preventDefault(); reopenClosedTabRef.current(); }
+      else if (k === 'e') { e.preventDefault(); setShowFileTree((v) => !v); }
+      else if (k === 'g') { e.preventDefault(); if (gitStatus?.isRepo) setShowGitPanel((v) => !v); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -3757,13 +3759,16 @@ function DataDirCard(): ReactNode {
 const SHORTCUTS: Array<{ group: string; items: Array<[string, string]> }> = [
   { group: '全局', items: [
     ['Ctrl+N', '新建任务'], ['Ctrl+K', '搜索'], ['Ctrl+W', '关闭标签'],
-    ['Ctrl+F', '会话内搜索'], ['Ctrl+/', '快捷键面板'], ['Esc', '停止任务'],
+    ['Ctrl+Shift+T', '恢复最近关闭标签'], ['Ctrl+F', '会话内搜索'],
+    ['Ctrl+/', '快捷键面板'], ['Esc', '停止任务'],
   ]},
   { group: '输入', items: [
     ['Enter', '发送消息'], ['Shift+Enter', '换行'], ['/', '斜杠命令'],
+    ['Ctrl+M', '语音输入开/停'], ['Ctrl+S', '编辑器保存（对比确认）'],
   ]},
   { group: '面板', items: [
-    ['⌗', '终端'], ['▤', '状态面板'], ['🗂', '文件树'], ['🌐', '浏览器'],
+    ['⌗', '终端'], ['▤', '状态面板'], ['Ctrl+E', '文件树'], ['Ctrl+G', 'Git 面板'],
+    ['📈', '系统监控'],
   ]},
 ];
 

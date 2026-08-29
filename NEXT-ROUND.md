@@ -53,6 +53,16 @@
   Ctrl+Shift+T；Tab 增 id（创建序号，reopen 按原 index 插回夹末尾）；恢复栈上限 20；关闭不重开会话
   ——历史列表仍在可找回
 
+## 打磨（R10，截图驱动）
+
+- [x] **动画细节**（2026-08-30 完成）：消息淡入上浮、下行面板展开过渡、
+  通知/弹层过渡、行 hover 平滑、按钮统一微过渡；prefers-reduced-motion 全部禁用
+- [x] **快捷键扩充+面板同步**（2026-08-30 完成）：Ctrl+E 文件树、Ctrl+G Git 面板、
+  Ctrl+Shift+T 恢复标签、Ctrl+M 语音、Ctrl+S 编辑器保存入面板列表
+- [x] **浅色主题修复**（2026-08-30 完成）：`:root` 后置覆盖 `[data-theme=light]`
+  同 specificity——浅色主题自写出起从未生效；改 `:root[data-theme=light]` 提级；
+  双向切换实测；🔔 悬浮钮上移避开 Composer 发送按钮重叠
+
 ## 内在质量
 
 - [x] **面板状态时效显示**（2026-08-28 完成）：BrowserStateStore 增 contentAt（换 URL 不重置内容时钟——
