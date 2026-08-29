@@ -71,8 +71,12 @@ export function renderMarkdown(src: string): ReactNode[] {
       const lang = fence[1] ?? '';
       const buf: string[] = [];
       i++;
-      while (i < lines.length && !lines[i]!.trim().startsWith('```')) buf.push(lines[i]!);
-      i++; // 跳过结束 ```
+      // 逐行前进：未闭合围栏（模型输出截断常见）不能卡死循环（曾致整页 Invalid array length 崩溃）
+      while (i < lines.length && !lines[i]!.trim().startsWith('```')) {
+        buf.push(lines[i]!);
+        i++;
+      }
+      i++; // 跳过结束 ```（不存在则已到末尾，安全）
       const code = buf.join('\n');
       const hl = fenceLang(lang);
       blocks.push(

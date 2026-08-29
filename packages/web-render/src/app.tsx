@@ -96,6 +96,52 @@ let bajinPlatformId: string | null = null;
 const platformId = (): string =>
   (bajinPlatformId ??= navigator.platform.startsWith('Win') ? 'win32' : 'linux');
 
+/** 消息内引用物提取（R9-5）：绝对路径文件 / http(s) URL / ```代码块 → 预览卡 */
+interface MessageRef { kind: 'file' | 'url' | 'code'; label: string; detail: string; }
+
+function extractRefs(text: string): { body: string; refs: MessageRef[] } {
+  const refs: MessageRef[] = [];
+  let body = text;
+  // 代码块优先抽出
+  body = body.replace(/```[\w]*\n([\s\S]{40,600}?)\n```/g, (_m, code: string) => {
+    refs.push({ kind: 'code', label: `代码片段 ${code.split('\n').length} 行`, detail: code.slice(0, 400) });
+    return '[代码片段]';
+  });
+  // 绝对路径文件（存在性由点击侧判断，仅样式识别）
+  body = body.replace(/(^|\s)(\/(?:[\w.-]+\/)+[\w.-]+\.[a-z]{1,5})/gi, (_m, pre: string, fp: string) => {
+    refs.push({ kind: 'file', label: fp.split('/').pop() ?? fp, detail: fp });
+    return `${pre}[文件 ${fp.split('/').pop()}]`;
+  });
+  // URL
+  body = body.replace(/https?:\/\/[^\s)]+/g, (u) => {
+    refs.push({ kind: 'url', label: u.replace(/^https?:\/\//, '').slice(0, 48), detail: u });
+    return `[链接 ${u.slice(0, 30)}…]`;
+  });
+  return { body: body.replace(/\n{3,}/g, '\n\n').trim(), refs: refs.slice(0, 4) };
+}
+
+/** 用户消息：正文 + 底部引用预览卡（点击文件直接进编辑器） */
+function UserMessage({ text, onOpenFile }: { text: string; onOpenFile: (f: string) => void }): ReactNode {
+  const { body, refs } = extractRefs(text);
+  return (
+    <div className="msg user">
+      <div className="body">{body}</div>
+      {refs.length > 0 && (
+        <div className="msg-refs">
+          {refs.map((r, i) => (
+            <button key={i} className={`ref-card ref-${r.kind}`}
+              title={r.detail}
+              onClick={() => { if (r.kind === 'file') onOpenFile(r.detail); else if (r.kind === 'url') window.open(r.detail, '_blank', 'noopener'); }}>
+              <span className="ref-ico">{r.kind === 'file' ? '📄' : r.kind === 'url' ? '🔗' : '⌨'}</span>
+              <span className="ref-label">{r.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** 工作时长格式化（R9 对标 ZCode「已工作 1 分 51 秒」） */
 function formatWorkDuration(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -1016,6 +1062,8 @@ function App() {
   const [logLimits, setLogLimits] = useState<Record<string, number>>({});
   /* 侧栏任务窗口化（R5-2）：默认渲染前 120 个，超出显示「显示更多」 */
   const [sidebarLimit, setSidebarLimit] = useState(SIDEBAR_WINDOW);
+  /* 时间线刻度进度（R9-4）：按滚动位置 0-100%，滚动条本身即会话进度 */
+  const [tlProgress, setTlProgress] = useState(0);
   /* 标签恢复栈（R8-3）：closeOne/Others/All 统一入栈，Ctrl+Shift+T 或菜单恢复 */
   const [closedTabs, setClosedTabs] = useState<Pick<Tab, 'id' | 'title' | 'sessionId'>[]>([]);
   const [tabMenu, setTabMenu] = useState<{ idx: number; x: number; y: number } | null>(null);
@@ -1433,6 +1481,7 @@ function App() {
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+    setTlProgress(100);
   }, [tab.items.length, tab.approval, tab.ask, active]);
 
   /* ---------- 动作 ---------- */
@@ -1934,6 +1983,8 @@ function App() {
           onScroll={(e) => {
             // 长会话窗口化：滚到顶部附近自动加载更早 200 条（保持视觉位置不跳动）
             const el = e.currentTarget;
+            const max = el.scrollHeight - el.clientHeight;
+            setTlProgress(max > 0 ? Math.min(100, Math.round((el.scrollTop / max) * 100)) : 0);
             if (el.scrollTop < 80 && (logLimits[tab.sessionId ?? ''] ?? LOG_WINDOW) < tab.items.length) {
               const prevHeight = el.scrollHeight;
               setLogLimits((m) => ({ ...m, [tab.sessionId ?? '']: (m[tab.sessionId ?? ''] ?? LOG_WINDOW) + 200 }));
@@ -1951,9 +2002,7 @@ function App() {
           {tab.items.slice(-(logLimits[tab.sessionId ?? ''] ?? LOG_WINDOW)).map((it, i) => {
             if (it.kind === 'user') {
               return (
-                <div className="msg user" key={i}>
-                  <div className="body">{it.text}</div>
-                </div>
+                <UserMessage key={i} text={it.text} onOpenFile={(f) => setEditorFile(f)} />
               );
             }
             if (it.kind === 'reasoning' && it.text) {
