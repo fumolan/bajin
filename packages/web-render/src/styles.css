@@ -1871,3 +1871,16 @@ button, .icon-btn, .primary, .tab { transition: background-color .12s ease, bord
   .notif-panel, .model-picker, .rec-overlay { animation: none; }
   .bg-tasks, .voice-btn.on, .icon-btn.rec-on { animation: none; }
 }
+
+/* ═══ R11 Composer 两分式底栏 + 任务行 hover 快捷操作 ═══ */
+/* 行尾快捷操作：默认隐藏，hover 浮现（对标 ZCode 行尾直接可点） */
+.history-quick { display: none; gap: 2px; flex: none; margin-left: auto; }
+.history-item:hover .history-quick { display: inline-flex; }
+.history-item:hover .history-time { display: none; } /* hover 时时间让位给操作钮 */
+.hq-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 12px; line-height: 1; padding: 2px 3px;
+  color: var(--dim); border-radius: 4px;
+}
+.hq-btn:hover { color: var(--text); background: var(--panel-2); }
+.hq-btn.hq-del:hover { color: var(--err); }

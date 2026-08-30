@@ -628,6 +628,8 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
             }} />
           <button className="composer-plus" title="添加附件（文本/图片）" onClick={() => attachInputRef.current?.click()}>＋</button>
           <ModeMenu mode={mode} onPick={onModeChange} />
+          <ContextIndicator usage={contextUsage} />
+          <span className="spacer" />
           <button className="model-switch-btn" disabled={busy} onClick={onModelClick} title={t('选择模型')}>
             {model} <span className="chevron">▾</span>
           </button>
@@ -640,8 +642,6 @@ function Composer({ input, setInput, onSend, onStop, busy, disabled, cwd, onPick
               <option value="低">低</option>
             </select>
           )}
-          <ContextIndicator usage={contextUsage} />
-          <span className="spacer" />
           <VoiceButton onText={(t) => setInput((p) => p + (p ? " " : "") + t)} />
           {busy ? (
             <button className="send-btn stop-mode" onClick={onStop} title={t('停止（Esc）')}>⏹</button>
@@ -884,6 +884,10 @@ function TaskListItem({ item, showProject, onOpen, onChanged, onGoSettings }: {
           <>
             <span className="task-ico">{taskIcon(item.title || item.sessionId || '')}</span>
             <span className={`history-title ${item.unread ? 'unread' : ''}`}>{item.unread ? '● ' : ''}{item.title || '(无标题)'}</span>
+            <span className="history-quick">
+              <button className="hq-btn" title="复制会话 ID" onClick={(e) => { e.stopPropagation(); copy(item.sessionId); }}>⧉</button>
+              <button className="hq-btn hq-del" title="删除任务" onClick={(e) => { e.stopPropagation(); void act('session/delete', {}).then(onChanged); }}>🗑</button>
+            </span>
             <span className="history-time">{formatTaskTime(item.modifiedAt)}</span>
           </>
         )}
