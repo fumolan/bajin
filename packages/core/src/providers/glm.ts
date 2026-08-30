@@ -146,11 +146,29 @@ function toOpenAiMessages(messages: ChatMessage[]): Array<Record<string, unknown
   });
 }
 
+/**
+ * 递归剥掉本地/第三方 OpenAI 兼容端点（llama.cpp GBNF 转换）不支持的
+ * 字符串长度约束——minLength/maxLength 只在 WebSearch/BrowserType 出现过，
+ * 但清洗对所有端点无损（OpenAI 官方同样接受缺省）。
+ */
+function sanitizeSchema(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(sanitizeSchema);
+  if (node && typeof node === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) {
+      if (k === 'minLength' || k === 'maxLength') continue;
+      out[k] = sanitizeSchema(v);
+    }
+    return out;
+  }
+  return node;
+}
+
 function toOpenAiTools(tools?: ProviderTool[]): Array<Record<string, unknown>> | undefined {
   if (!tools?.length) return undefined;
   return tools.map((t) => ({
     type: 'function',
-    function: { name: t.name, description: t.description, parameters: t.parameters },
+    function: { name: t.name, description: t.description, parameters: sanitizeSchema(t.parameters) },
   }));
 }
 
