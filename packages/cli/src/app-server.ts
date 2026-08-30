@@ -1272,7 +1272,20 @@ export class AppServer {
           // 端点解析链：模型自带 baseUrl/apiKey > 挂靠的供应商 > 全局 key + 默认端点
           const ep = resolveModelEndpoint(this.model, this.customModels, this.providers);
           const apiKey = ep.apiKey ?? this.apiKey ?? process.env['BIGMODEL_API_KEY'] ?? '';
-          if (!apiKey) throw new Error('缺少 API key（initialize 传 apiKey、为模型/供应商配置 key，或传 mock: true）');
+          // 惰性报错（R13）：凭据缺失不再让 createSession 即刻炸掉——否则配了 A 供应商但
+          // 默认模型是 B 时整个 UI 起不来。chat 被真正调用时才给出可操作的错误。
+          if (!apiKey) {
+            const model = this.model;
+            const configured = [...new Set(this.providers.flatMap((p) => p.models ?? []))];
+            const hint = configured.length ? `已配置可用模型：${configured.slice(0, 5).join('、')}，请到模型列表切换` : '请到「设置 → 模型设置」为供应商配置 API Key';
+            return {
+              id: 'unconfigured',
+              defaultModel: model,
+              async chat() {
+                throw new Error(`当前模型 ${model} 未配置凭据。${hint}`);
+              },
+            } as ReturnType<typeof createGlmProvider>;
+          }
           // 两种接入端点：anthropic 走 Messages 协议（x-api-key），openai 走 chat/completions（Bearer）
           if (ep.apiFormat === 'anthropic') {
             return createAnthropicProvider({ apiKey, baseUrl: ep.baseUrl ?? this.baseUrl, model: this.model });
@@ -1355,6 +1368,7 @@ export class AppServer {
     return this.withSessionAsync(p as unknown as Record<string, unknown>, (s) => {
       if (!p?.model) throw new Error('model 不能为空');
       s.model = p.model;
+      this.model = p.model; // provider 工厂闭包读全局 this.model——不同步则 send 仍用旧模型（R13 实测发现）
       this.rebuild(s);
       return { model: s.model };
     });

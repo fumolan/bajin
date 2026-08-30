@@ -3842,6 +3842,7 @@ function friendlyError(err: unknown): string {
   if (msg.includes('ETIMEDOUT') || msg.includes('timeout')) return '操作超时。请检查网络连接或稍后重试';
   if (msg.includes('401') || msg.includes('Unauthorized')) return 'API Key 无效或已过期。请到 设置→模型设置 检查 API Key';
   if (msg.includes('429') || msg.includes('rate limit')) return '请求频率过高。请稍后重试';
+  if (msg.includes('402') || msg.includes('额度不足')) return '供应商 Token 额度不足——请充值或切换到其他已配置的模型/供应商';
   if (msg.includes('500') || msg.includes('Internal Server')) return '服务器内部错误。请稍后重试或重启 bajin';
   if (msg.includes('缺少 API') || msg.includes('API Key')) return '未配置 API Key。请到 设置→模型设置 配置';
   if (msg.includes('session 不存在') || msg.includes('会话不存在')) return '会话已关闭或不存在。请新建任务';
