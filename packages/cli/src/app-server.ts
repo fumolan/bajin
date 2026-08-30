@@ -463,8 +463,10 @@ export class AppServer {
     // 首启种入内置默认技能（缺失才写，用户编辑过不覆盖；幂等）+ 载入禁用清单
     await seedBuiltinSkills().catch(() => undefined);
     try {
-      const cfg = JSON.parse(await fs.readFile(path.join(AppServer.stateHome(), 'config.json'), 'utf8')) as { skillsDisabled?: string[] };
+      const cfg = JSON.parse(await fs.readFile(path.join(AppServer.stateHome(), 'config.json'), 'utf8')) as { skillsDisabled?: string[]; bigmodel?: { apiKey?: string } };
       this.skillsDisabled = Array.isArray(cfg.skillsDisabled) ? cfg.skillsDisabled : [];
+      // 全局 GLM key 从配置读取（R13：web 模式无桌面 preload，env 之外的第二来源）
+      if (!this.apiKey && cfg.bigmodel?.apiKey) this.apiKey = cfg.bigmodel.apiKey;
     } catch { /* 无配置 */ }
     this.baseUrl = params.baseUrl ?? this.baseUrl;
     this.persist = params.persist ?? false;
