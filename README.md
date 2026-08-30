@@ -20,6 +20,18 @@ node packages/cli/bin/bajin.js -p "统计当前目录的 ts 文件数"   # headl
 
 ## 网页端（主要使用方式）
 
+### 接本地模型（llama.cpp / Ollama 等任意 OpenAI 兼容端点）
+
+设置 → 模型设置 → 添加供应商：
+- baseUrl：`http://127.0.0.1:8080/v1`（llama.cpp 默认端口；Ollama 为 `http://127.0.0.1:11434/v1`）
+- apiFormat：`openai`；apiKey 随意填（本地无鉴权时）
+- models：模型名列表（llama.cpp 为 gguf 文件名）
+
+也可直接编辑 `~/.bajin/config.json` 的 `providers` 块。GLM 官方模型填
+`bigmodel.apiKey` 即可（env `BIGMODEL_API_KEY` 同效）。注意：小参数量
+gguf 对 function calling 支持有限，工具调用建议用支持工具的模型。
+
+
 `bajin server` 起本地服务，浏览器访问 `http://localhost:4444`——与原桌面端同一套 React 聊天 UI
 （流式输出/工具卡片/内联审批/通知中心/浏览器面板/系统监控），零桌面依赖。
 
