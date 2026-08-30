@@ -27,6 +27,8 @@ interface Tab {
   workStartedAt: number | null;
   /** 输出档位（R9-3）：最高/高/中/低 → maxTokens 32k/16k/8k/4k */
   effort: string;
+  /** 最近一轮统计（R12：工作时长条点击展开显示，对标 ZCode 可展开箭头） */
+  lastRun: { iterations: number; toolCalls: number; tokens: number; at: number } | null;
   sessionId: string | null;
   title: string;
   items: Item[];
@@ -151,6 +153,26 @@ function formatWorkDuration(ms: number): string {
   if (h > 0) return `${h} 小时 ${m} 分`;
   if (m > 0) return `${m} 分 ${sec} 秒`;
   return `${sec} 秒`;
+}
+
+/** 工作时长条（R12：点击展开本轮统计——迭代/工具调用/tokens，对标 ZCode 可展开箭头） */
+function WorkTimer({ busy, startedAt, lastRun }: { busy: boolean; startedAt: number; lastRun: { iterations: number; toolCalls: number; tokens: number; at: number } | null }): ReactNode {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="work-timer-wrap">
+      <button className="work-timer clickable" title="本轮会话累计工作时长（点击查看上轮统计）" onClick={() => setOpen((v) => !v)}>
+        {busy ? '已工作' : '上次工作'} {formatWorkDuration(Date.now() - startedAt)}
+        <span className="chevron">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="work-stats">
+          {lastRun
+            ? <>上轮 {lastRun.iterations} 轮迭代 · {lastRun.toolCalls} 次工具调用 · {lastRun.tokens > 1000 ? `${Math.round(lastRun.tokens / 1000)}k` : lastRun.tokens} tokens</>
+            : '暂无上轮统计（本轮结束后显示）'}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /** Electron <webview> 最小接口（纯 web 包不含 electron 类型；运行时无 Electron 时不会触达） */
@@ -1009,6 +1031,7 @@ function blankTab(): Tab {
     id: ++tabSeq,
     workStartedAt: null,
     effort: '高',
+    lastRun: null,
     sessionId: null,
     title: `新会话 ${++tabSeq}`,
     items: [],
@@ -1348,6 +1371,12 @@ function App() {
               ask: null,
               tokens: Number(p['tokens'] ?? t.tokens),
               contextUsage: (p['contextUsage'] as Tab['contextUsage']) ?? t.contextUsage,
+              lastRun: {
+                iterations: Number(p['iterations'] ?? 0),
+                toolCalls: Number(p['toolCalls'] ?? 0),
+                tokens: Number(p['tokens'] ?? 0),
+                at: Date.now(),
+              },
               items: p['cancelled']
                 ? [...items, { kind: 'system', text: '⏹ 任务已被用户中断' } as Item]
                 : items,
@@ -1863,9 +1892,9 @@ function App() {
             bucketTasks(visibleHistory().slice(0, sidebarLimit), 'grouped').map(([bucket, items]) => (
               <div key={bucket}>
                 <div
-                  className={`history-group clickable ${collapsedGroups.has(bucket) ? 'collapsed' : ''}`}
+                  className={`history-group clickable ${bucket === '已置顶' ? 'pinned-group' : ''} ${collapsedGroups.has(bucket) ? 'collapsed' : ''}`}
                   onClick={() => toggleGroup(bucket)}
-                >{collapsedGroups.has(bucket) ? '▸' : '▾'} {t(bucket)}</div>
+                >{bucket === '已置顶' ? '📌 ' : ''}{collapsedGroups.has(bucket) ? '▸' : '▾'} {t(bucket)}</div>
                 {!collapsedGroups.has(bucket) && items.map((h) => (
                   <TaskListItem
                     key={h.sessionId}
@@ -1978,9 +2007,11 @@ function App() {
         {/* 消息流 + 右侧状态面板（对标 ZCode chat.statusPanel）；左栏可选文件树 */}
         <div className="chat-row">
         {tab.workStartedAt && (
-          <div className="work-timer" title="本轮会话累计工作时长（发送首条消息起）">
-            {tab.busy ? '已工作' : '上次工作'} {formatWorkDuration(Date.now() - tab.workStartedAt)}
-          </div>
+          <WorkTimer
+            busy={tab.busy}
+            startedAt={tab.workStartedAt}
+            lastRun={tab.lastRun}
+          />
         )}
         {showProcMonitor && (<ProcessMonitorPanel onClose={() => setShowProcMonitor(false)} />)}
         {editorFile && (<FileEditorPanel filePath={editorFile} onClose={() => setEditorFile(null)} />)}
