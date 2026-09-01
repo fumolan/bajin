@@ -1899,3 +1899,9 @@ button, .icon-btn, .primary, .tab { transition: background-color .12s ease, bord
   color: var(--warn); font-weight: 600;
   background: var(--warn-soft); border-radius: 6px; padding: 3px 8px; margin: 4px 6px;
 }
+
+/* 流式等待分级提示（R16） */
+.stream-wait {
+  margin-top: 6px; font-size: 12px; color: var(--dim);
+  animation: blink 2s ease-in-out infinite;
+}

@@ -2418,8 +2418,20 @@ function NotificationCenter({ notifications, open, unread, onToggle, onClear }: 
 function AssistantMessage({ item, busy, isLast, onRegenerate }: { item: Extract<Item, { kind: 'assistant' }>; busy: boolean; isLast: boolean; onRegenerate?: () => void }): ReactNode {
   const [expanded, setExpanded] = useState(false);
   const streaming = busy && isLast && !item.text;
+  // 等待分级提示（R16）：本地/慢速模型首 token 可能要数分钟，让用户分清「在算」与「卡死」
+  const [waitSecs, setWaitSecs] = useState(0);
+  useEffect(() => {
+    if (!streaming) { setWaitSecs(0); return; }
+    const t = setInterval(() => setWaitSecs((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [streaming]);
   const long = item.text.length > 1500;
   const shown = long && !expanded ? `${item.text.slice(0, 1500)}…` : item.text;
+  const waitHint = waitSecs >= 60
+    ? `模型仍在生成（已等 ${Math.floor(waitSecs / 60)} 分 ${waitSecs % 60} 秒）——本地/CPU 模型首轮较慢；若长时间无响应可点 ⏹ 停止后重试`
+    : waitSecs >= 8
+      ? '等待模型响应…（本地或慢速端点可能需要 1-3 分钟）'
+      : null;
   return (
     <div className="msg assistant">
       <div className="msg-row">
@@ -2434,8 +2446,23 @@ function AssistantMessage({ item, busy, isLast, onRegenerate }: { item: Extract<
         {!busy && isLast && item.text && onRegenerate && (
           <button className="msg-copy" title="回退本轮重新生成" onClick={onRegenerate}>↻ 重新生成</button>
         )}
+        {/* 空回复且空闲（模型出错/拒绝输出）也给重试入口（R16） */}
+        {!busy && isLast && !item.text && onRegenerate && (
+          <button className="msg-copy" title="模型未输出内容，重试本轮" onClick={onRegenerate}>↻ 重试本轮</button>
+        )}
       </div>
-      <div className="body md">{item.text ? renderMarkdown(shown) : streaming ? <span className="cursor">▍</span> : null}</div>
+      <div className="body md">
+        {item.text
+          ? renderMarkdown(shown)
+          : streaming
+            ? (
+              <>
+                <span className="cursor">▍</span>
+                {waitHint && <div className="stream-wait">{waitHint}</div>}
+              </>
+            )
+            : null}
+      </div>
     </div>
   );
 }
