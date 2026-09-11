@@ -787,14 +787,14 @@ export class AppServer {
 
   /** 文件写入（编辑器保存用） */
   private async fsWrite(p: { path: string; content: string }): Promise<Record<string, unknown>> {
-    if (!p.path?.startsWith('/')) throw new Error('需要绝对路径');
+    if (!p.path || !platform.isAbsolutePath(p.path)) throw new Error('需要绝对路径');
     await fs.writeFile(p.path, p.content, 'utf8');
     return { written: p.path, bytes: Buffer.byteLength(p.content) };
   }
 
   /** 编辑器读文件：≤2MB 文本，超出截断（编辑器场景足够，避免巨型文件拖垮 IPC） */
   private async fsRead(p: { path: string }): Promise<Record<string, unknown>> {
-    if (!p.path?.startsWith('/')) throw new Error('需要绝对路径');
+    if (!p.path || !platform.isAbsolutePath(p.path)) throw new Error('需要绝对路径');
     const stat = await fs.stat(p.path).catch(() => null);
     if (!stat?.isFile()) throw new Error(`不是文件: ${p.path}`);
     const MAX = 2 * 1024 * 1024;
@@ -893,7 +893,9 @@ export class AppServer {
     // 读 top 进程（简化：只取 agent 自身 + 系统 node 进程）
     const procs: Array<Record<string, unknown>> = [];
     try {
-        const out = execSync('ps aux --sort=-%mem | head -15', { encoding: 'utf8', timeout: 3000 });
+      // 跨平台（R17）：GNU ps 的 --sort 在 macOS BSD ps 不存在——统一取全量后按内存列排序
+      const isDarwin = process.platform === 'darwin';
+      const out = execSync(isDarwin ? 'ps axo pid,user,pcpu,pmem,rss,comm | head -16' : 'ps aux --sort=-%mem | head -15', { encoding: 'utf8', timeout: 3000, shell: isDarwin ? '/bin/sh' : undefined });
       for (const line of out.split('\n').slice(1)) {
         const cols = line.trim().split(/\s+/);
         if (cols.length < 11) continue;

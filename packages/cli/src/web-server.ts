@@ -24,6 +24,7 @@ import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawn, type ChildProcess } from 'node:child_process';
 import * as os from 'node:os';
+import { platform } from '@bajin/shared';
 import { gzipSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 
@@ -128,9 +129,9 @@ class AppServerProc {
 // ── 设置读写（与 Electron main 同逻辑）──
 
 function stateHome(): string {
-  return process.env['BAJIN_HOME']?.startsWith('/')
-    ? process.env['BAJIN_HOME']
-    : path.join(os.homedir(), '.bajin');
+  // 跨平台（R17）：BAJIN_HOME 合法性用 platform.isAbsolutePath（win32 认盘符）
+  const env = process.env['BAJIN_HOME'];
+  return env && platform.isAbsolutePath(env) ? env : platform.stateRoot(undefined, process.env);
 }
 
 function readSettings(): Record<string, unknown> {
@@ -159,11 +160,19 @@ let termClients = new Set<http.ServerResponse>();
 
 function startTerminal(cwd?: string): { ok: boolean; error?: string } {
   if (termProc) return { ok: true };
-  const shell = process.env['SHELL'] ?? '/bin/bash';
+  // 跨平台（R17）：终端命令与 cwd 判定走 platform 适配层（win32 = cmd.exe，POSIX = $SHELL --login）
+  const term = platform.terminalCommand(process.env['BAJIN_SHELL'], process.env);
   try {
-    termProc = spawn(shell, ['--login'], {
-      cwd: cwd?.startsWith('/') ? cwd : process.cwd(),
+    termProc = spawn(term.file, term.args, {
+      cwd: cwd && platform.isAbsolutePath(cwd) ? cwd : process.cwd(),
       env: { ...process.env, TERM: 'xterm-256color' },
+    });
+    // Windows 下 spawn ENOENT 走 error 事件而非 throw——不监听会崩掉 web-server
+    termProc.on('error', (err) => {
+      for (const res of termClients) {
+        try { res.write(`event: term-exit\ndata: ${JSON.stringify({ code: -1, error: String(err) })}\n\n`); } catch { termClients.delete(res); }
+      }
+      termProc = null;
     });
     termProc.stdout!.setEncoding('utf8');
     termProc.stdout!.on('data', (d: string) => {
@@ -346,6 +355,7 @@ export function startWebServer(opts: WebServerOptions): http.Server {
           mode: (settings['mode'] as string) ?? null,
           baseUrl: null,
           home: os.homedir(),
+          platform: process.platform, // 服务端 OS 是 shell 选项分流的唯一事实源（远程场景≠浏览器 OS）
         }));
         return;
       }

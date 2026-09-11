@@ -5,7 +5,7 @@
 
 import { z } from 'zod';
 import type { ToolDefinition } from '@bajin/shared';
-import { execFile } from 'node:child_process';
+import { exec as execCb, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -59,7 +59,16 @@ export function createDiagnosticsTool(): ToolDefinition<typeof DiagnosticsInput>
         try {
           const args = ['--noEmit', '--pretty', 'false', '--skipLibCheck'];
           if (input.file) args.push(input.file);
-          const { stdout, stderr } = await exec('npx', ['tsc', ...args], { cwd, timeout: 50_000 });
+          // Windows 上 npx 是 npx.cmd，execFile 直接执行 .cmd 会被拒——win32 走 shell（命令为常量无注入面）
+          const onWin = process.platform === 'win32';
+          const { stdout, stderr } = onWin
+            ? await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+                execCb(`npx tsc ${args.map((a) => JSON.stringify(a)).join(' ')}`, { cwd, timeout: 50_000 }, (err: Error | null, so: string, se: string) => {
+                  if (err && !so && !se) reject(err);
+                  else resolve({ stdout: so, stderr: se });
+                });
+              })
+            : await exec('npx', ['tsc', ...args], { cwd, timeout: 50_000 });
           const diags = parseTscOutput(stdout + stderr);
           if (diags.length === 0) return { ok: true, output: '✓ 无编译错误' };
           return {

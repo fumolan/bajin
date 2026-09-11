@@ -8,6 +8,10 @@
 pnpm install
 pnpm build        # 构建 shared → core → web-render → cli
 pnpm test         # vitest 全部测试
+```
+
+> **平台**：Linux / macOS / Windows 均可运行（server 为 Node 服务，浏览器跨平台访问）。
+> Windows 终端面板走 cmd.exe（可 BAJIN_SHELL 指定 powershell）；工具调用建议安装 git-bash 语义工具或使用 PowerShell 语法。
 
 # 无 key 冒烟
 node packages/cli/bin/bajin.js --mock -p "你好"

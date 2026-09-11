@@ -64,6 +64,8 @@ class McpStdioClient {
 
   async start(): Promise<void> {
     const child = spawn(this.cfg.command, this.cfg.args ?? [], {
+      // Windows：npx/uvx 等是 .cmd shim，execFile 语义拒执行——win32 用 shell 解析（命令来自用户自身配置）
+      shell: process.platform === 'win32',
       env: { ...process.env, ...this.cfg.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
