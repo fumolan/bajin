@@ -4,6 +4,7 @@ const execFileAsync = promisify(ef);
 import { createGlmProvider, createAnthropicProvider, listSessions, rewindTranscript, openSessionStore, migrateJsonlToStore, readCustomModels, readProviders, resolveModelEndpoint } from '@bajin/core';
 import { platform, type ModelProvider, type PermissionMode } from '@bajin/shared';
 import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import { loadConfig } from './config.js';
 import { runRepl } from './repl.js';
 import { runHeadless } from './headless.js';
@@ -34,7 +35,7 @@ const USAGE = `bajin — 交互式编码代理
   migrate [--db <file>]  存量 JSONL 会话迁入 SQLite（幂等；默认 ~/.bajin/sessions.db，遵循 BAJIN_HOME）
   export <id> [--out f]  导出会话为 Markdown（id 支持前缀匹配；默认 <sessionId>.md）
   import <claude|codex|cursor> [--dry-run]  从外部 Agent 导入命令/技能/子代理/MCP
-  server [--port N]      浏览器完整 bajin UI（默认端口 4444）
+  server [--port N] [--host addr] [--token t]  浏览器 UI（--host 0.0.0.0 远程访问，自动生成令牌）
   app-server --stdio     作为桌面端后端进程运行
 
 配置（作用域链，近的覆盖远的）:
@@ -198,13 +199,24 @@ function main(): void {
       return;
     }
 
-    // 子命令：bajin server [--port N] —— 浏览器完整 bajin UI（与桌面端一致）
+    // 子命令：bajin server [--port N] [--host addr] [--token t] —— 浏览器完整 bajin UI
     if (process.argv[2] === 'server') {
       const portFlag = process.argv.indexOf('--port');
       const port = portFlag > 0 ? Number(process.argv[portFlag + 1]) : 4444;
+      const hostFlag = process.argv.indexOf('--host');
+      const host = hostFlag > 0 ? process.argv[hostFlag + 1] : undefined;
+      // token：--token 显式 > BAJIN_TOKEN env > 远程绑定时自动生成（打印一次）
+      const tokenFlag = process.argv.indexOf('--token');
+      let token = tokenFlag > 0 ? process.argv[tokenFlag + 1] : (process.env['BAJIN_TOKEN'] ?? undefined);
+      if (host && host !== '127.0.0.1' && !token) {
+        token = crypto.randomBytes(16).toString('hex');
+        process.stdout.write(`\n  已自动生成访问令牌（远程访问需携带）：\n  token = ${token}\n\n`);
+      }
       const { startWebServer } = await import('./web-server.js');
       startWebServer({
         port,
+        host,
+        token,
         cwd: process.cwd(),
         model: config.model ?? 'glm-4.7',
         mock: args.mock,

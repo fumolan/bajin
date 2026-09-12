@@ -202,6 +202,10 @@ function startTerminal(cwd?: string): { ok: boolean; error?: string } {
 
 export interface WebServerOptions {
   port?: number;
+  /** 绑定地址：默认 127.0.0.1（仅本机）；远程访问传 0.0.0.0 并强烈建议配置 token */
+  host?: string;
+  /** 访问令牌（R18 远程鉴权）：设置后所有 /api/* 与静态资源都要求 ?token= 或 Authorization: Bearer */
+  token?: string;
   cwd?: string;
   model?: string;
   mock?: boolean;
@@ -264,8 +268,46 @@ export function startWebServer(opts: WebServerOptions): http.Server {
   // 事件转发：app-server → SSE
   proc.onEvent((event, params) => broadcastEvent(event, params));
 
+  // ── 访问令牌鉴权（R18 远程支持）：bind 0.0.0.0 且配置了 token 时生效 ──
+  const authToken = opts.token;
+  const needsAuth = Boolean(authToken) && (opts.host ?? '127.0.0.1') !== '127.0.0.1';
+
   // HTTP 服务器
   const server = http.createServer(async (req, res) => {
+    // 鉴权：URL ?token= 优先（分享链接/书签友好），其次 Authorization: Bearer / X-Bajin-Token
+    if (needsAuth) {
+      const u = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+      // token 三来源：query（登录表单/分享链接）→ cookie（校验通过后种下，静态资源自动携带）→ header
+      const cookieToken = /(?:^|;\s*)bajin_token=([^;]*)/.exec(req.headers.cookie ?? '')?.[1] ?? '';
+      const queryToken = u.searchParams.get('token') ?? '';
+      const headerToken = (() => {
+        const h = req.headers['authorization'] ?? req.headers['x-bajin-token'] ?? '';
+        return String(h).replace(/^Bearer /i, '');
+      })();
+      const presented = cookieToken || queryToken || headerToken;
+      // query/header 命中时种 cookie（HttpOnly），后续静态资源请求免参
+      const setCookie = (!cookieToken && (queryToken === authToken || headerToken === authToken))
+        ? { 'Set-Cookie': `bajin_token=${authToken}; HttpOnly; SameSite=Strict; Path=/` }
+        : undefined;
+      if (setCookie) res.setHeader('Set-Cookie', setCookie['Set-Cookie']);
+      if (presented !== authToken) {
+        // 浏览器直接打开：给一个极简 token 输入页（提交后带 token 跳转）
+        if ((req.headers.accept ?? '').includes('text/html')) {
+          res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(`<!doctype html><meta charset="utf-8"><title>bajin 访问令牌</title>
+<body style="font-family:system-ui;background:#15171c;color:#d7dae0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<form method="get" style="display:flex;gap:8px">
+<input name="token" placeholder="访问令牌" autofocus style="padding:8px 12px;border-radius:6px;border:1px solid #3a3f4b;background:#1d2027;color:inherit;width:240px">
+<button style="padding:8px 16px;border-radius:6px;border:none;background:#5a94ff;color:#fff;cursor:pointer">进入</button>
+</form>`);
+        } else {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: '未授权：缺少或错误的 token' }));
+        }
+        return;
+      }
+    }
+
     const url = new URL(req.url ?? '/', `http://localhost:${port}`);
 
     // CORS
@@ -504,8 +546,15 @@ export function startWebServer(opts: WebServerOptions): http.Server {
   // 启动 app-server 子进程
   proc.start(cwd, opts.model ?? 'glm-4.7', 'build', opts.mock ?? false, opts.apiKey);
 
-  server.listen(port, () => {
-    process.stdout.write(`\n  bajin web 运行中: http://localhost:${port}\n\n`);
+  const bindHost = opts.host ?? '127.0.0.1';
+  server.listen(port, bindHost, () => {
+    const shown = bindHost === '0.0.0.0' ? '<本机IP>' : bindHost;
+    process.stdout.write(`\n  bajin web 运行中: http://localhost:${port}${needsAuth ? '（已启用令牌鉴权，远程访问带 ?token=…）' : ''}\n`);
+    if (bindHost === '0.0.0.0') {
+      process.stdout.write(`  远程访问: http://${shown}:${port}${authToken ? `?token=${authToken.slice(0, 4)}…` : ''}\n`);
+      if (!authToken) process.stdout.write('  ⚠ 绑定 0.0.0.0 但未设置 --token，任何局域网设备均可访问\n');
+    }
+    process.stdout.write('\n');
   });
 
   // 优雅退出
@@ -593,7 +642,7 @@ function getWebBridge(): string {
 
   function connectEvents() {
     if (es) return;
-    es = new EventSource('/api/events');
+    es = new EventSource(withToken('/api/events'));
     // 通用事件（text-delta/reasoning-delta/tool-call/tool-result/done/...）
     // SSE 只支持 named events，我们用一个自定义事件名接所有
     const knownEvents = [
@@ -613,17 +662,26 @@ function getWebBridge(): string {
     }
   }
 
+  // 访问令牌（R18）：从当前 URL 取一次，所有 API 请求/SSE 自动携带
+  const TOKEN = new URLSearchParams(location.search).get('token') || '';
+  function withToken(path) {
+    if (!TOKEN) return path;
+    return path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(TOKEN);
+  }
+
   async function post(path, body) {
-    const res = await fetch(path, {
+    const res = await fetch(withToken(path), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: Object.assign({ 'Content-Type': 'application/json' }, TOKEN ? { 'X-Bajin-Token': TOKEN } : {}),
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     return res.json();
   }
 
   async function get(path) {
-    const res = await fetch(path);
+    const res = await fetch(withToken(path), {
+      headers: TOKEN ? { 'X-Bajin-Token': TOKEN } : {},
+    });
     return res.json();
   }
 
